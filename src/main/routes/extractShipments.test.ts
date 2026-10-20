@@ -64,7 +64,7 @@ test('returns OCR results in upload order with original filenames', async () => 
   await withApp(async (app) => {
     const response = await app.inject({
       method: 'POST',
-      url: '/remessas/extrair',
+      url: '/shipments/extract',
       headers: { 'content-type': `multipart/form-data; boundary=${boundary}` },
       payload: createMultipart([
         { filename: 'first.pdf', content: pdf('recognized first text') },
@@ -90,8 +90,30 @@ test('returns OCR results in upload order with original filenames', async () => 
   });
 });
 
+test('exposes the English shipment endpoint and removes the Portuguese endpoint', async () => {
+  await withApp(async (app) => {
+    const payload = createMultipart([{ filename: 'unknown.pdf', content: pdf('unknown text') }]);
+    const headers = { 'content-type': `multipart/form-data; boundary=${boundary}` };
+    const englishResponse = await app.inject({
+      method: 'POST',
+      url: '/shipments/extract',
+      headers,
+      payload,
+    });
+    const portugueseResponse = await app.inject({
+      method: 'POST',
+      url: '/remessas/extrair',
+      headers,
+      payload,
+    });
+
+    assert.equal(englishResponse.statusCode, 200);
+    assert.equal(portugueseResponse.statusCode, 404);
+  });
+});
+
 test('classifies a DANFE and returns organized fields and complete OCR text', async () => {
-  const danfeOcr = [
+  const invoiceOcr = [
     'ACME EXEMPLO LTDA',
     'CNPJ: 00.000.000/0001-00',
     'ENDEREÇO: Rua Industrial, 100',
@@ -139,12 +161,12 @@ test('classifies a DANFE and returns organized fields and complete OCR text', as
     'DADOS ADICIONAIS:',
     'Informação complementar reconhecida. Documento vinculado ao romaneio.',
   ].join('\n');
-  const app = buildApp({ processDocument: async () => danfeOcr });
+  const app = buildApp({ processDocument: async () => invoiceOcr });
 
   try {
     const response = await app.inject({
       method: 'POST',
-      url: '/remessas/extrair',
+      url: '/shipments/extract',
       headers: { 'content-type': `multipart/form-data; boundary=${boundary}` },
       payload: createMultipart([{ filename: 'danfe.pdf', content: pdf('sample') }]),
     });
@@ -154,66 +176,79 @@ test('classifies a DANFE and returns organized fields and complete OCR text', as
     assert.equal(document.documentType, 'danfe');
     assert.equal(document.status, 'success');
     assert.equal(document.fileName, 'danfe.pdf');
-    assert.equal(document.ocrText, danfeOcr);
-    assert.equal(document.fields.identificacao.numero, '12345');
-    assert.equal(document.fields.identificacao.serie, '2');
-    assert.equal(document.fields.emitente.razaoSocial, 'ACME EXEMPLO LTDA');
-    assert.equal(document.fields.emitente.cnpj, '00.000.000/0001-00');
-    assert.equal(document.fields.destinatario.razaoSocial, 'Cliente Exemplo Ltda');
-    assert.equal(document.fields.destinatario.cnpjCpf, '11.111.111/0001-11');
-    assert.equal(document.fields.destinatario.endereco, 'Rua Comercial, 200');
-    assert.equal(document.fields.transportador.razaoSocial, 'Transportes Exemplo');
-    assert.equal(document.fields.transportador.placaVeiculo, 'ABC1234');
-    assert.equal(document.fields.tributosETotais.valorIcms, '3,60');
-    assert.equal(document.fields.tributosETotais.valorTotal, '20,00');
-    assert.deepEqual(document.fields.produtos, [
+    assert.equal(document.ocrText, invoiceOcr);
+    assert.deepEqual(Object.keys(document.fields).sort(), [
+      'additionalInformation',
+      'billing',
+      'carrier',
+      'identification',
+      'issuer',
+      'products',
+      'recipient',
+      'taxesAndTotals',
+    ]);
+    assert.equal(document.fields.identification.number, '12345');
+    assert.equal(document.fields.identification.series, '2');
+    assert.equal(document.fields.issuer.companyName, 'ACME EXEMPLO LTDA');
+    assert.equal(document.fields.issuer.taxId, '00.000.000/0001-00');
+    assert.equal(document.fields.recipient.companyName, 'Cliente Exemplo Ltda');
+    assert.equal(document.fields.recipient.taxId, '11.111.111/0001-11');
+    assert.equal(document.fields.recipient.address, 'Rua Comercial, 200');
+    assert.equal(document.fields.carrier.companyName, 'Transportes Exemplo');
+    assert.equal(document.fields.carrier.vehiclePlate, 'ABC1234');
+    assert.equal(document.fields.taxesAndTotals.icmsAmount, '3,60');
+    assert.equal(document.fields.taxesAndTotals.productsAmount, '20,00');
+    assert.equal(document.fields.taxesAndTotals.totalAmount, '20,00');
+    assert.deepEqual(document.fields.products, [
       {
-        codigo: 'A-1',
-        descricao: 'Produto exemplo',
+        code: 'A-1',
+        description: 'Produto exemplo',
         ncm: '12345678',
         cst: '00',
         cfop: '5102',
-        unidade: 'UN',
-        quantidade: '2',
-        valorUnitario: '10,00',
-        valorTotal: '20,00',
-        baseCalculoIcms: '20,00',
-        valorIcms: '3,60',
-        valorIpi: '0,00',
-        aliquotaIcms: '18,00',
-        aliquotaIpi: '0,00',
+        unit: 'UN',
+        quantity: '2',
+        unitPrice: '10,00',
+        totalAmount: '20,00',
+        icmsTaxBase: '20,00',
+        icmsAmount: '3,60',
+        ipiAmount: '0,00',
+        icmsRate: '18,00',
+        ipiRate: '0,00',
       },
       {
-        codigo: 'B-2',
-        descricao: 'Produto parcial',
+        code: 'B-2',
+        description: 'Produto parcial',
         ncm: '87654321',
         cst: '00',
         cfop: '5102',
-        unidade: 'UN',
-        quantidade: '1',
-        valorUnitario: '1,00',
-        valorTotal: '1,00',
-        baseCalculoIcms: null,
-        valorIcms: null,
-        valorIpi: null,
-        aliquotaIcms: null,
-        aliquotaIpi: null,
+        unit: 'UN',
+        quantity: '1',
+        unitPrice: '1,00',
+        totalAmount: '1,00',
+        icmsTaxBase: null,
+        icmsAmount: null,
+        ipiAmount: null,
+        icmsRate: null,
+        ipiRate: null,
       },
     ]);
     assert.equal(
-      document.fields.informacoesAdicionais,
+      document.fields.additionalInformation,
       'Informação complementar reconhecida. Documento vinculado ao romaneio.',
     );
     assert.ok(document.warnings.length > 0);
-    assert.ok(document.warnings.includes('produtos[1].valorIcms: campo não reconhecido no OCR'));
+    assert.ok(
+      document.warnings.includes('products[1].icmsAmount: field was not recognized in OCR'),
+    );
     assert.equal(JSON.stringify(document).includes('undefined'), false);
   } finally {
     await app.close();
   }
 });
 
-test('classifies a romaneio and returns grouped shipment and box data', async () => {
-  const romaneioOcr = [
+test('classifies a shipping manifest and returns grouped shipment and box data', async () => {
+  const shippingManifestOcr = [
     'New Shipping List',
     'Closure date: 19/10/2026 08:30',
     'Country BR Shipname NavioExemplo',
@@ -230,55 +265,55 @@ test('classifies a romaneio and returns grouped shipment and box data', async ()
     '5551002 CODE-2 12346-78 2,907 32,832 0,109',
     'Total 8,659 90,083 0,300',
   ].join('\n');
-  const app = buildApp({ processDocument: async () => romaneioOcr });
+  const app = buildApp({ processDocument: async () => shippingManifestOcr });
 
   try {
     const response = await app.inject({
       method: 'POST',
-      url: '/remessas/extrair',
+      url: '/shipments/extract',
       headers: { 'content-type': `multipart/form-data; boundary=${boundary}` },
       payload: createMultipart([{ filename: 'romaneio.pdf', content: pdf('sample') }]),
     });
 
     assert.equal(response.statusCode, 200);
     const document = response.json().documents[0];
-    assert.equal(document.documentType, 'romaneio');
+    assert.equal(document.documentType, 'shipping_manifest');
     assert.equal(document.status, 'success');
     assert.equal(document.fileName, 'romaneio.pdf');
-    assert.equal(document.ocrText, romaneioOcr);
-    assert.equal(document.fields.remessa.numero, 'SHIP-123');
-    assert.equal(document.fields.remessa.pais, 'BR');
-    assert.equal(document.fields.transportadora.razaoSocial, 'Expresso Exemplo');
-    assert.equal(document.fields.transportadora.identificador, 'C-100');
-    assert.equal(document.fields.rota.origem, 'SAO PAULO');
-    assert.equal(document.fields.rota.estado, 'SP');
-    assert.equal(document.fields.rota.codigo, 'SPC006');
-    assert.equal(document.fields.fechamento.dataHora, '19/10/2026 08:30');
-    assert.equal(document.fields.volumes.quantidade, '2');
-    assert.equal(document.fields.volumes.embalagem, 'Cardboard Box');
-    assert.equal(document.fields.totais.quantidadeCaixas, '2');
-    assert.equal(document.fields.totais.peso, '8,659');
-    assert.equal(document.fields.totais.pesoCubico, '90,083');
-    assert.equal(document.fields.totais.volume, '0,300');
-    assert.deepEqual(document.fields.caixas, [
+    assert.equal(document.ocrText, shippingManifestOcr);
+    assert.equal(document.fields.shipment.number, 'SHIP-123');
+    assert.equal(document.fields.shipment.country, 'BR');
+    assert.equal(document.fields.carrier.companyName, 'Expresso Exemplo');
+    assert.equal(document.fields.carrier.identifier, 'C-100');
+    assert.equal(document.fields.route.origin, 'SAO PAULO');
+    assert.equal(document.fields.route.state, 'SP');
+    assert.equal(document.fields.route.code, 'SPC006');
+    assert.equal(document.fields.closing.dateTime, '19/10/2026 08:30');
+    assert.equal(document.fields.packages.quantity, '2');
+    assert.equal(document.fields.packages.packaging, 'Cardboard Box');
+    assert.equal(document.fields.totals.boxCount, '2');
+    assert.equal(document.fields.totals.weight, '8,659');
+    assert.equal(document.fields.totals.cubicWeight, '90,083');
+    assert.equal(document.fields.totals.volume, '0,300');
+    assert.deepEqual(document.fields.boxes, [
       {
-        referencia: '5551001',
-        codigo: 'CODE-1',
-        notaFiscal: '12345-67',
-        peso: '5,752',
-        pesoCubico: '57,251',
+        reference: '5551001',
+        code: 'CODE-1',
+        invoiceNumber: '12345-67',
+        weight: '5,752',
+        cubicWeight: '57,251',
         volume: '0,191',
       },
       {
-        referencia: '5551002',
-        codigo: 'CODE-2',
-        notaFiscal: '12346-78',
-        peso: '2,907',
-        pesoCubico: '32,832',
+        reference: '5551002',
+        code: 'CODE-2',
+        invoiceNumber: '12346-78',
+        weight: '2,907',
+        cubicWeight: '32,832',
         volume: '0,109',
       },
     ]);
-    assert.ok(document.warnings.includes('remessa.data: campo não reconhecido no OCR'));
+    assert.ok(document.warnings.includes('shipment.date: field was not recognized in OCR'));
   } finally {
     await app.close();
   }
@@ -288,7 +323,7 @@ test('reports a failed PDF safely and continues processing later files', async (
   await withApp(async (app) => {
     const response = await app.inject({
       method: 'POST',
-      url: '/remessas/extrair',
+      url: '/shipments/extract',
       headers: { 'content-type': `multipart/form-data; boundary=${boundary}` },
       payload: createMultipart([
         { filename: 'first.pdf', content: pdf('recognized text') },
@@ -326,7 +361,7 @@ test('rejects requests without files', async () => {
   await withApp(async (app) => {
     const response = await app.inject({
       method: 'POST',
-      url: '/remessas/extrair',
+      url: '/shipments/extract',
       headers: { 'content-type': `multipart/form-data; boundary=${boundary}` },
       payload: createMultipart([]),
     });
@@ -350,7 +385,7 @@ test('rejects non-PDF content before invoking the processor', async () => {
   try {
     const response = await app.inject({
       method: 'POST',
-      url: '/remessas/extrair',
+      url: '/shipments/extract',
       headers: { 'content-type': `multipart/form-data; boundary=${boundary}` },
       payload: createMultipart([{ filename: 'not-a-pdf.pdf', content: 'not a PDF' }]),
     });
@@ -367,7 +402,7 @@ test('rejects malformed multipart input', async () => {
   await withApp(async (app) => {
     const response = await app.inject({
       method: 'POST',
-      url: '/remessas/extrair',
+      url: '/shipments/extract',
       headers: { 'content-type': `multipart/form-data; boundary=${boundary}` },
       payload: Buffer.from(`--${boundary}\r\ninvalid multipart`),
     });
@@ -382,7 +417,7 @@ test('rejects batches containing more than ten PDFs', async () => {
   await withApp(async (app) => {
     const response = await app.inject({
       method: 'POST',
-      url: '/remessas/extrair',
+      url: '/shipments/extract',
       headers: { 'content-type': `multipart/form-data; boundary=${boundary}` },
       payload: createMultipart(
         Array.from({ length: 11 }, (_, index) => ({
@@ -414,7 +449,7 @@ test('returns a size failure for an oversized file and continues with later file
   try {
     const response = await app.inject({
       method: 'POST',
-      url: '/remessas/extrair',
+      url: '/shipments/extract',
       headers: { 'content-type': `multipart/form-data; boundary=${boundary}` },
       payload: createMultipart([
         { filename: 'oversized.pdf', content: pdf('x'.repeat(64)) },
@@ -453,7 +488,7 @@ test('rejects oversized non-PDF content as invalid input', async () => {
   try {
     const response = await app.inject({
       method: 'POST',
-      url: '/remessas/extrair',
+      url: '/shipments/extract',
       headers: { 'content-type': `multipart/form-data; boundary=${boundary}` },
       payload: createMultipart([{ filename: 'not-a-pdf.pdf', content: 'x'.repeat(64) }]),
     });
@@ -481,7 +516,7 @@ test('removes the request temporary directory after successful processing', asyn
   try {
     const response = await app.inject({
       method: 'POST',
-      url: '/remessas/extrair',
+      url: '/shipments/extract',
       headers: { 'content-type': `multipart/form-data; boundary=${boundary}` },
       payload: createMultipart([{ filename: 'document.pdf', content: pdf('document') }]),
     });
@@ -509,7 +544,7 @@ test('preserves the original filename without using it as a temporary path', asy
   try {
     const response = await app.inject({
       method: 'POST',
-      url: '/remessas/extrair',
+      url: '/shipments/extract',
       headers: { 'content-type': `multipart/form-data; boundary=${boundary}` },
       payload: createMultipart([{ filename: '../original.pdf', content: pdf('document') }]),
     });
@@ -533,7 +568,7 @@ test('enforces the 25 MiB per-file limit', async () => {
   await withApp(async (app) => {
     const response = await app.inject({
       method: 'POST',
-      url: '/remessas/extrair',
+      url: '/shipments/extract',
       headers: { 'content-type': `multipart/form-data; boundary=${boundary}` },
       payload: createMultipart([{ filename: 'oversized.pdf', content: oversizedPdf }]),
     });
@@ -563,7 +598,7 @@ test('removes the request temporary directory after OCR failure', async () => {
   try {
     const response = await app.inject({
       method: 'POST',
-      url: '/remessas/extrair',
+      url: '/shipments/extract',
       headers: { 'content-type': `multipart/form-data; boundary=${boundary}` },
       payload: createMultipart([{ filename: 'document.pdf', content: pdf('document') }]),
     });
@@ -583,7 +618,7 @@ test('removes the request temporary directory after malformed multipart input', 
   try {
     const response = await app.inject({
       method: 'POST',
-      url: '/remessas/extrair',
+      url: '/shipments/extract',
       headers: { 'content-type': `multipart/form-data; boundary=${boundary}` },
       payload: Buffer.from(`--${boundary}\r\ninvalid multipart`),
     });
@@ -609,7 +644,7 @@ test('returns a safe server error when temporary-file cleanup fails', async () =
   try {
     const response = await app.inject({
       method: 'POST',
-      url: '/remessas/extrair',
+      url: '/shipments/extract',
       headers: { 'content-type': `multipart/form-data; boundary=${boundary}` },
       payload: createMultipart([{ filename: 'document.pdf', content: pdf('document') }]),
     });

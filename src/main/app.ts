@@ -5,7 +5,7 @@ import { fastifyCors } from '@fastify/cors';
 import { fastify, type FastifyError } from 'fastify';
 import { ZodError } from 'zod';
 
-import { registerExtractRemessaRoute } from './routes/extractRemessa';
+import { registerExtractShipmentsRoute } from './routes/extractShipments';
 import { fastifyErrorResponse } from './utils/fastifyErrorResponse';
 
 interface IBuildAppOptions {
@@ -28,7 +28,7 @@ export function buildApp(options: IBuildAppOptions = {}) {
     return { status: 'ok' };
   });
 
-  registerExtractRemessaRoute(app, options);
+  registerExtractShipmentsRoute(app, options);
 
   app.setErrorHandler((error, _, reply) => {
     if (error instanceof ZodError) {

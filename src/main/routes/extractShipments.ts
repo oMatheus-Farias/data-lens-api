@@ -4,9 +4,9 @@ import { tmpdir } from 'node:os';
 import { basename, extname, join } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 
-import { extractDanfe } from '@application/documents/DanfeExtractor';
 import type { IDocumentProcessor } from '@application/documents/DocumentProcessor';
-import { extractRomaneio } from '@application/documents/RomaneioExtractor';
+import { extractInvoice } from '@application/documents/InvoiceExtractor';
+import { extractShippingManifest } from '@application/documents/ShippingManifestExtractor';
 import { ErrorCode } from '@application/errors/ErrorCode';
 import fastifyMultipart from '@fastify/multipart';
 import type { FastifyInstance } from 'fastify';
@@ -23,7 +23,7 @@ const TOO_MANY_FILES_MESSAGE = 'A maximum of 10 PDF files is allowed';
 const PROCESSING_FAILURE_REASON = 'Document could not be processed';
 const VALIDATION_ERROR = Symbol('validation-error');
 
-interface IExtractRemessaOptions {
+interface IExtractShipmentsOptions {
   processDocument?: (filePath: string, workDirectory: string) => Promise<string>;
   cleanupTemporaryDirectory?: (directory: string) => Promise<void>;
   temporaryDirectoryRoot?: string;
@@ -71,9 +71,9 @@ async function hasPdfSignature(filePath: string): Promise<boolean> {
   }
 }
 
-export function registerExtractRemessaRoute(
+export function registerExtractShipmentsRoute(
   app: FastifyInstance,
-  options: IExtractRemessaOptions = {},
+  options: IExtractShipmentsOptions = {},
 ) {
   const maxFileSizeBytes = options.maxFileSizeBytes ?? MAX_FILE_SIZE_BYTES;
   const documentProcessor: IDocumentProcessor = options.processDocument
@@ -94,7 +94,7 @@ export function registerExtractRemessaRoute(
     },
   });
 
-  app.post('/remessas/extrair', async (request, reply) => {
+  app.post('/shipments/extract', async (request, reply) => {
     let workDirectory: string | undefined;
     let statusCode = 200;
     let responseBody: unknown;
@@ -103,7 +103,7 @@ export function registerExtractRemessaRoute(
     try {
       const temporaryDirectoryRoot = options.temporaryDirectoryRoot ?? tmpdir();
       await mkdir(temporaryDirectoryRoot, { recursive: true });
-      workDirectory = await mkdtemp(join(temporaryDirectoryRoot, 'data-lens-remessa-'));
+      workDirectory = await mkdtemp(join(temporaryDirectoryRoot, 'data-lens-shipment-'));
 
       const uploadedFiles: IUploadedFile[] = [];
       let invalidField = false;
@@ -214,7 +214,7 @@ export function registerExtractRemessaRoute(
 
         try {
           const ocrText = await documentProcessor.process(file.filePath, workDirectory);
-          const extraction = extractRomaneio(ocrText) ?? extractDanfe(ocrText);
+          const extraction = extractShippingManifest(ocrText) ?? extractInvoice(ocrText);
 
           documents.push(
             extraction

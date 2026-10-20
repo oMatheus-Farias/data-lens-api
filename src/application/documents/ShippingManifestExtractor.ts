@@ -1,67 +1,67 @@
-export interface IRomaneioBox {
-  referencia: string | null;
-  codigo: string | null;
-  notaFiscal: string | null;
-  peso: string | null;
-  pesoCubico: string | null;
+export interface IShippingManifestBox {
+  reference: string | null;
+  code: string | null;
+  invoiceNumber: string | null;
+  weight: string | null;
+  cubicWeight: string | null;
   volume: string | null;
 }
 
-export interface IRomaneioFields {
-  remessa: {
-    numero: string | null;
-    data: string | null;
-    pais: string | null;
-    nomeNavio: string | null;
-    operador: string | null;
-    formaPagamento: string | null;
+export interface IShippingManifestFields {
+  shipment: {
+    number: string | null;
+    date: string | null;
+    country: string | null;
+    shipName: string | null;
+    operator: string | null;
+    paymentMethod: string | null;
   };
-  transportadora: {
-    razaoSocial: string | null;
-    identificador: string | null;
-    cnpjCpf: string | null;
-    motorista: string | null;
-    placaVeiculo: string | null;
+  carrier: {
+    companyName: string | null;
+    identifier: string | null;
+    taxId: string | null;
+    driver: string | null;
+    vehiclePlate: string | null;
   };
-  rota: {
-    origem: string | null;
-    destino: string | null;
-    estado: string | null;
-    codigo: string | null;
+  route: {
+    origin: string | null;
+    destination: string | null;
+    state: string | null;
+    code: string | null;
   };
-  fechamento: {
-    dataHora: string | null;
-    responsavel: string | null;
+  closing: {
+    dateTime: string | null;
+    responsible: string | null;
   };
-  volumes: {
-    embalagem: string | null;
-    quantidade: string | null;
-    peso: string | null;
+  packages: {
+    packaging: string | null;
+    quantity: string | null;
+    weight: string | null;
     volume: string | null;
   };
-  totais: {
-    quantidadeNotas: string | null;
-    quantidadeCaixas: string | null;
-    peso: string | null;
-    pesoCubico: string | null;
+  totals: {
+    invoiceCount: string | null;
+    boxCount: string | null;
+    weight: string | null;
+    cubicWeight: string | null;
     volume: string | null;
   };
-  caixas: IRomaneioBox[];
+  boxes: IShippingManifestBox[];
 }
 
-export interface IRomaneioExtraction {
-  documentType: 'romaneio';
-  fields: IRomaneioFields;
+export interface IShippingManifestExtraction {
+  documentType: 'shipping_manifest';
+  fields: IShippingManifestFields;
   warnings: string[];
 }
 
 type ScalarFieldPath =
-  | `remessa.${keyof IRomaneioFields['remessa']}`
-  | `transportadora.${keyof IRomaneioFields['transportadora']}`
-  | `rota.${keyof IRomaneioFields['rota']}`
-  | `fechamento.${keyof IRomaneioFields['fechamento']}`
-  | `volumes.${keyof IRomaneioFields['volumes']}`
-  | `totais.${keyof IRomaneioFields['totais']}`;
+  | `shipment.${keyof IShippingManifestFields['shipment']}`
+  | `carrier.${keyof IShippingManifestFields['carrier']}`
+  | `route.${keyof IShippingManifestFields['route']}`
+  | `closing.${keyof IShippingManifestFields['closing']}`
+  | `packages.${keyof IShippingManifestFields['packages']}`
+  | `totals.${keyof IShippingManifestFields['totals']}`;
 
 type ScalarValue = string | null;
 type IScalarFields = Record<ScalarFieldPath, ScalarValue>;
@@ -85,7 +85,9 @@ function findValue(text: string, patterns: RegExp[]): string | null {
   return null;
 }
 
-function extractRoute(text: string): Pick<IRomaneioFields['rota'], 'origem' | 'destino'> {
+function extractRoute(
+  text: string,
+): Pick<IShippingManifestFields['route'], 'origin' | 'destination'> {
   const inlineRoute = findValue(text, [
     /\b(?:ROTA|ROUTE)\s*[-:]\s*([^\n]+)/i,
     /\bROTA\s+([^\n]+)/i,
@@ -93,18 +95,18 @@ function extractRoute(text: string): Pick<IRomaneioFields['rota'], 'origem' | 'd
   const routeParts = inlineRoute?.match(/^(.+?)\s*(?:->|→|\bPARA\b|\bTO\b|\s[-–]\s)\s*(.+)$/i);
 
   return {
-    origem:
+    origin:
       findValue(text, [/\b(?:ORIGEM|ORIGIN)\s*[-:]\s*([^\n|;]+)/i]) ??
       routeParts?.[1]?.trim() ??
       null,
-    destino:
+    destination:
       findValue(text, [/\b(?:DESTINO|DESTINATION)\s*[-:]\s*([^\n|;]+)/i]) ??
       routeParts?.[2]?.trim() ??
       null,
   };
 }
 
-function parseEnglishBoxRow(line: string): IRomaneioBox | null {
+function parseEnglishBoxRow(line: string): IShippingManifestBox | null {
   const match = line.match(/^\s*(\S+)\s+(\S+)\s+(\S+)\s+([\d.,]+)\s+([\d.,]+)\s+([\d.,]+)\s*$/);
 
   if (!match) {
@@ -112,16 +114,16 @@ function parseEnglishBoxRow(line: string): IRomaneioBox | null {
   }
 
   return {
-    referencia: match[1] ?? null,
-    codigo: match[2] ?? null,
-    notaFiscal: match[3] ?? null,
-    peso: match[4] ?? null,
-    pesoCubico: match[5] ?? null,
+    reference: match[1] ?? null,
+    code: match[2] ?? null,
+    invoiceNumber: match[3] ?? null,
+    weight: match[4] ?? null,
+    cubicWeight: match[5] ?? null,
     volume: match[6] ?? null,
   };
 }
 
-function parseDelimitedBoxRow(line: string): IRomaneioBox | null {
+function parseDelimitedBoxRow(line: string): IShippingManifestBox | null {
   const columns = line
     .split(/\s*[|;\t]\s*|\s{2,}/)
     .map((column) => column.trim())
@@ -147,16 +149,16 @@ function parseDelimitedBoxRow(line: string): IRomaneioBox | null {
   const volume = volumeIndex >= 0 ? (values[volumeIndex] ?? null) : (values.at(-1) ?? null);
 
   return {
-    referencia: reference,
-    codigo: values.length >= 4 ? (values[0] ?? null) : null,
-    notaFiscal: values[noteIndex]?.replace(/^NF(?:-?E)?\s*[:#-]?\s*/i, '') ?? null,
-    peso: weight,
-    pesoCubico: null,
+    reference: reference,
+    code: values.length >= 4 ? (values[0] ?? null) : null,
+    invoiceNumber: values[noteIndex]?.replace(/^NF(?:-?E)?\s*[:#-]?\s*/i, '') ?? null,
+    weight: weight,
+    cubicWeight: null,
     volume,
   };
 }
 
-function extractBoxes(text: string): IRomaneioBox[] {
+function extractBoxes(text: string): IShippingManifestBox[] {
   const section = text.match(
     /(?:^|\n)\s*(?:BOX\s+NUMBER[^\n]*|CAIXAS?(?:\s*\/\s*VOLUMES?)?|VOLUMES?(?:\s*\/\s*PACOTES?)?|PACOTES?)\s*\n([\s\S]*?)(?=\n\s*TOTAL(?:\s|$)|$)/i,
   )?.[1];
@@ -165,7 +167,7 @@ function extractBoxes(text: string): IRomaneioBox[] {
     return [];
   }
 
-  const rows: IRomaneioBox[] = [];
+  const rows: IShippingManifestBox[] = [];
 
   for (const line of section.split('\n')) {
     if (
@@ -189,16 +191,16 @@ function extractBoxes(text: string): IRomaneioBox[] {
 
 function extractEnglishRoute(
   text: string,
-): Pick<IRomaneioFields['rota'], 'origem' | 'estado' | 'codigo'> {
+): Pick<IShippingManifestFields['route'], 'origin' | 'state' | 'code'> {
   const routeTable = text.match(
     /\bDN\s+CITY\s+STATE\s+ROUTE\s*\n([\s\S]*?)(?=\n\s*BOX\s+NUMBER\b|$)/i,
   )?.[1];
   const routeRow = routeTable?.match(/^\s*\S+\s+(.+?)\s+([A-Z]{2})\s+([A-Z0-9-]+)\s*$/im);
 
   return {
-    origem: routeRow?.[1] ?? null,
-    estado: routeRow?.[2] ?? null,
-    codigo: routeRow?.[3] ?? null,
+    origin: routeRow?.[1] ?? null,
+    state: routeRow?.[2] ?? null,
+    code: routeRow?.[3] ?? null,
   };
 }
 
@@ -220,133 +222,136 @@ function valuesForFields(text: string): IScalarFields {
   ]);
 
   return {
-    'remessa.numero': findValue(text, [
+    'shipment.number': findValue(text, [
       /\b(?:N[ÚU]MERO\s+(?:DA\s+)?)?REMESSA\s*[-:#]?\s*([\w./-]+)/i,
       /\bSHIPMENT\s*[-:#]?\s*([\w./-]+)/i,
     ]),
-    'remessa.data': findValue(text, [
+    'shipment.date': findValue(text, [
       /\bDATA(?:\s+DA)?\s+REMESSA\s*[-:]?\s*([\d./-]+)/i,
       /^\s*DATA\s*[-:]\s*([\d./-]+)/im,
     ]),
-    'remessa.pais': findValue(text, [/\bCOUNTRY\s*[-:]?\s*([A-Z]{2,3})\b/i]),
-    'remessa.nomeNavio': findValue(text, [
+    'shipment.country': findValue(text, [/\bCOUNTRY\s*[-:]?\s*([A-Z]{2,3})\b/i]),
+    'shipment.shipName': findValue(text, [
       /\bSHIPNAME\s*[-:]?\s*(.+?)(?=\s+\b(?:SHIPMENT|OPERATOR|PAYMENT\s+OPTION|CARRIER)\b|[|\n]|$)/i,
     ]),
-    'remessa.operador': findValue(text, [
+    'shipment.operator': findValue(text, [
       /\bOPERATOR\s*[-:]?\s*(.+?)(?=\s+\b(?:PAYMENT\s+OPTION|CARRIER|SHIPMENT)\b|[|\n]|$)/i,
     ]),
-    'remessa.formaPagamento': findValue(text, [
+    'shipment.paymentMethod': findValue(text, [
       /\bPAYMENT\s+OPTION\s*[-:]?\s*(.+?)(?=\s+\b(?:CARRIER|SHIPMENT|OPERATOR)\b|[|\n]|$)/i,
     ]),
-    'transportadora.razaoSocial': carrierParts?.[2] ?? carrier,
-    'transportadora.identificador': carrierParts?.[1] ?? null,
-    'transportadora.cnpjCpf': findValue(text, [
+    'carrier.companyName': carrierParts?.[2] ?? carrier,
+    'carrier.identifier': carrierParts?.[1] ?? null,
+    'carrier.taxId': findValue(text, [
       /\bCNPJ\s*[-/]?\s*CPF\s*[-:]?\s*([\d./-]+)/i,
       /\bCNPJ\s*[-:]?\s*([\d./-]+)/i,
     ]),
-    'transportadora.motorista': findValue(text, [/\bMOTORISTA\s*[-:]\s*([^\n|;]+)/i]),
-    'transportadora.placaVeiculo': findValue(text, [
+    'carrier.driver': findValue(text, [/\bMOTORISTA\s*[-:]\s*([^\n|;]+)/i]),
+    'carrier.vehiclePlate': findValue(text, [
       /\bPLACA(?:\s+DO\s+VE[IÍ]CULO)?\s*[-:]\s*([A-Z0-9-]+)/i,
     ]),
-    'rota.origem':
+    'route.origin':
       findValue(text, [/\b(?:ORIGEM|ORIGIN)\s*[-:]\s*([^\n|;]+)/i]) ??
-      englishRoute.origem ??
-      route.origem,
-    'rota.destino':
-      findValue(text, [/\b(?:DESTINO|DESTINATION)\s*[-:]\s*([^\n|;]+)/i]) ?? route.destino,
-    'rota.estado': englishRoute.estado,
-    'rota.codigo': englishRoute.codigo,
-    'fechamento.dataHora': closing,
-    'fechamento.responsavel': findValue(text, [
+      englishRoute.origin ??
+      route.origin,
+    'route.destination':
+      findValue(text, [/\b(?:DESTINO|DESTINATION)\s*[-:]\s*([^\n|;]+)/i]) ?? route.destination,
+    'route.state': englishRoute.state,
+    'route.code': englishRoute.code,
+    'closing.dateTime': closing,
+    'closing.responsible': findValue(text, [
       /\b(?:RESPONS[ÁA]VEL|CONFERENTE)\s*[-:]\s*([^\n|;]+)/i,
     ]),
-    'volumes.embalagem': findValue(packagingSection, [
+    'packages.packaging': findValue(packagingSection, [
       /\b(CARDBOARD\s+BOX|BOX|CAIXA|CAIXAS|VOLUME|PACOTE)\s+\d+\b/i,
     ]),
-    'volumes.quantidade': findValue(text, [
+    'packages.quantity': findValue(text, [
       /\b(?:QUANTIDADE\s+DE\s+)?VOLUMES?\s*[-:]?\s*(\d+)\b/i,
       /\b(?:CARDBOARD\s+BOX|BOX|PACKAGING)\s+(\d+)\b/i,
     ]),
-    'volumes.peso': findValue(text, [
+    'packages.weight': findValue(text, [
       /\bPESO\s+(?:BRUTO\s+)?(?:TOTAL|DOS\s+VOLUMES)\s*[-:]?\s*([\d.,]+(?:\s*(?:KG|G))?)/i,
     ]),
-    'volumes.volume': findValue(text, [
+    'packages.volume': findValue(text, [
       /\b(?:VOLUME\s+TOTAL|VOLUMETRIA\s+TOTAL)\s*[-:]?\s*([\d.,]+(?:\s*(?:M[³3]|L))?)/i,
     ]),
-    'totais.quantidadeNotas': findValue(text, [
+    'totals.invoiceCount': findValue(text, [
       /\bTOTAL\s+DE\s+(?:NOTAS|NOTAS\s+FISCAIS|NF-?ES?)\s*[-:]?\s*(\d+)\b/i,
       /\bQUANTIDADE\s+DE\s+NOTAS\s+FISCAIS\s*[-:]?\s*(\d+)\b/i,
     ]),
-    'totais.quantidadeCaixas': findValue(packagingSection, [
+    'totals.boxCount': findValue(packagingSection, [
       /\bTOTAL\s*[-:]?\s*(\d+)\b/i,
       /\bTOTAL\s+DE\s+CAIXAS?\s*[-:]?\s*(\d+)\b/i,
       /\bQUANTIDADE\s+DE\s+CAIXAS?\s*[-:]?\s*(\d+)\b/i,
     ]),
-    'totais.peso':
+    'totals.weight':
       tableTotalValues?.[1] ??
       findValue(text, [/\bPESO\s+(?:BRUTO\s+)?TOTAL\s*[-:]?\s*([\d.,]+(?:\s*(?:KG|G))?)/i]),
-    'totais.pesoCubico': tableTotalValues?.[2] ?? null,
-    'totais.volume':
+    'totals.cubicWeight': tableTotalValues?.[2] ?? null,
+    'totals.volume':
       tableTotalValues?.[3] ??
       findValue(text, [/\bVOLUME\s+TOTAL\s*[-:]?\s*([\d.,]+(?:\s*(?:M[³3]|L))?)/i]),
   };
 }
 
-function createFields(values: IScalarFields, boxes: IRomaneioBox[]): IRomaneioFields {
+function createFields(
+  values: IScalarFields,
+  boxes: IShippingManifestBox[],
+): IShippingManifestFields {
   return {
-    remessa: {
-      numero: values['remessa.numero'],
-      data: values['remessa.data'],
-      pais: values['remessa.pais'],
-      nomeNavio: values['remessa.nomeNavio'],
-      operador: values['remessa.operador'],
-      formaPagamento: values['remessa.formaPagamento'],
+    shipment: {
+      number: values['shipment.number'],
+      date: values['shipment.date'],
+      country: values['shipment.country'],
+      shipName: values['shipment.shipName'],
+      operator: values['shipment.operator'],
+      paymentMethod: values['shipment.paymentMethod'],
     },
-    transportadora: {
-      razaoSocial: values['transportadora.razaoSocial'],
-      identificador: values['transportadora.identificador'],
-      cnpjCpf: values['transportadora.cnpjCpf'],
-      motorista: values['transportadora.motorista'],
-      placaVeiculo: values['transportadora.placaVeiculo'],
+    carrier: {
+      companyName: values['carrier.companyName'],
+      identifier: values['carrier.identifier'],
+      taxId: values['carrier.taxId'],
+      driver: values['carrier.driver'],
+      vehiclePlate: values['carrier.vehiclePlate'],
     },
-    rota: {
-      origem: values['rota.origem'],
-      destino: values['rota.destino'],
-      estado: values['rota.estado'],
-      codigo: values['rota.codigo'],
+    route: {
+      origin: values['route.origin'],
+      destination: values['route.destination'],
+      state: values['route.state'],
+      code: values['route.code'],
     },
-    fechamento: {
-      dataHora: values['fechamento.dataHora'],
-      responsavel: values['fechamento.responsavel'],
+    closing: {
+      dateTime: values['closing.dateTime'],
+      responsible: values['closing.responsible'],
     },
-    volumes: {
-      embalagem: values['volumes.embalagem'],
-      quantidade: values['volumes.quantidade'],
-      peso: values['volumes.peso'],
-      volume: values['volumes.volume'],
+    packages: {
+      packaging: values['packages.packaging'],
+      quantity: values['packages.quantity'],
+      weight: values['packages.weight'],
+      volume: values['packages.volume'],
     },
-    totais: {
-      quantidadeNotas: values['totais.quantidadeNotas'],
-      quantidadeCaixas: values['totais.quantidadeCaixas'],
-      peso: values['totais.peso'],
-      pesoCubico: values['totais.pesoCubico'],
-      volume: values['totais.volume'],
+    totals: {
+      invoiceCount: values['totals.invoiceCount'],
+      boxCount: values['totals.boxCount'],
+      weight: values['totals.weight'],
+      cubicWeight: values['totals.cubicWeight'],
+      volume: values['totals.volume'],
     },
-    caixas: boxes,
+    boxes,
   };
 }
 
-export function extractRomaneio(ocrText: string): IRomaneioExtraction | null {
+export function extractShippingManifest(ocrText: string): IShippingManifestExtraction | null {
   const text = normalizedText(ocrText);
   const firstNonemptyLine = text.split('\n').find((line) => line.trim()) ?? '';
-  const isPortugueseRomaneio = /^\s*ROMANEIO\b/i.test(firstNonemptyLine);
-  const isEnglishShippingList =
+  const hasPortugueseManifestHeading = /^\s*ROMANEIO\b/i.test(firstNonemptyLine);
+  const hasEnglishManifestMarkers =
     /\bSHIPPING\s+LIST\b/i.test(text) &&
     /\bSHIPMENT\b/i.test(text) &&
     /\bCARRIER\b/i.test(text) &&
     /\bBOX\b/i.test(text);
 
-  if (!isPortugueseRomaneio && !isEnglishShippingList) {
+  if (!hasPortugueseManifestHeading && !hasEnglishManifestMarkers) {
     return null;
   }
 
@@ -355,19 +360,19 @@ export function extractRomaneio(ocrText: string): IRomaneioExtraction | null {
   const fields = createFields(values, boxes);
   const warnings: string[] = Object.entries(values)
     .filter(([, value]) => value === null)
-    .map(([path]) => `${path}: campo não reconhecido no OCR`);
+    .map(([path]) => `${path}: field was not recognized in OCR`);
 
   boxes.forEach((box, index) => {
     for (const [field, value] of Object.entries(box)) {
       if (value === null) {
-        warnings.push(`caixas[${index}].${field}: campo não reconhecido no OCR`);
+        warnings.push(`boxes[${index}].${field}: field was not recognized in OCR`);
       }
     }
   });
 
   if (boxes.length === 0) {
-    warnings.push('caixas: nenhuma linha de caixa reconhecida no OCR');
+    warnings.push('boxes: no package rows were recognized in OCR');
   }
 
-  return { documentType: 'romaneio', fields, warnings };
+  return { documentType: 'shipping_manifest', fields, warnings };
 }

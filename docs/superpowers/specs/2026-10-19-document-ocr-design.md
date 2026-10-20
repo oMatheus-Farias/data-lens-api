@@ -1,42 +1,45 @@
-# Data extraction from scanned PDFs
+# Structured extraction from scanned PDFs
 
 ## Objective
 
-Add a synchronous flow to the Data Lens API that accepts a batch of scanned PDFs and returns the recognized data for each file as structured JSON in a single response. This stage validates document reading; it does not store files or results and does not reconcile data across documents.
+Accept a batch of scanned PDFs and return one structured result per file in a synchronous HTTP response. The API does not persist files or results and does not reconcile information across documents.
 
-## Observed scope
+## Document layouts
 
-The three supplied PDFs are single-page scans without a useful text layer. They represent two layouts:
+The first stage supports two Brazilian document layouts:
 
-- **Romaneio**: batch, carrier, route, closing, package, and total data; a box table with invoice references, weights, and package counts.
-- **DANFE**: NF-e identification, issuer and recipient, addresses, dates, billing and payment, taxes and totals, carrier and packages, products, and additional information.
+- **Shipping manifest**: shipment, carrier, route, closing, package, and total fields, plus separate box rows.
+- **DANFE**: invoice identification, issuer and recipient, billing, tax totals, carrier, products, and additional information.
 
-Initial extraction covers the visible fields in these two layouts and preserves product and box rows as lists. It does not promise to interpret arbitrary PDFs or fiscal layouts. The complete OCR text is returned to support review and future mapping improvements.
+Recognized field values and the complete `ocrText` remain exactly as read from the source documents. Application-owned API names, warning paths, and messages use English. OCR rules support Portuguese source labels and English labels where present.
 
-## HTTP interface
+## HTTP contract
 
-- `POST /remessas/extrair`
+- `POST /shipments/extract`
 - `Content-Type: multipart/form-data`
-- Repeated `files` fields contain the PDFs in the batch.
-- A single request processes files sequentially and returns one result item per file.
-- Proposed initial limit: up to 10 PDFs and 25 MiB per file. When possible, inputs that exceed these limits are reported as failures for the corresponding file; multipart errors that prevent the request from being read return an HTTP validation error.
+- Repeat the `files` part for each PDF in the batch.
+- Process files sequentially and return results in upload order.
+- Allow up to 10 PDFs per request and 25 MiB per file.
 
-Proposed response format:
+Each item in `documents` includes the original `fileName`, `status`, and OCR text when available. Recognized documents also include `documentType`, structured `fields`, and `warnings`. Document type is `shipping_manifest`, `danfe`, or `null`; status is `success`, `unrecognized`, or `failed`. A failed file includes a safe English `reason`. One file's failure does not stop the remaining files.
+
+Example shipping-manifest result:
 
 ```json
 {
-  "status": "completed",
   "documents": [
     {
-      "fileName": "document.pdf",
-      "documentType": "danfe",
+      "fileName": "manifest.pdf",
+      "documentType": "shipping_manifest",
       "status": "success",
       "fields": {
-        "identificacao": {},
-        "emitente": {},
-        "destinatario": {},
-        "produtos": [],
-        "totais": {}
+        "shipment": { "number": "RM-123", "date": "19/10/2026" },
+        "carrier": { "companyName": "Transportes Exemplo" },
+        "route": { "origin": "São Paulo", "destination": "Campinas" },
+        "closing": { "dateTime": "19/10/2026 08:30" },
+        "packages": { "quantity": "2" },
+        "totals": { "invoiceCount": "2" },
+        "boxes": [{ "reference": "CX-001", "invoiceNumber": "12345" }]
       },
       "ocrText": "...",
       "warnings": []
@@ -45,35 +48,21 @@ Proposed response format:
 }
 ```
 
-`documentType` can be `romaneio`, `danfe`, or `null`. An unrecognized type returns `status: "unrecognized"`, OCR text, and a warning. A file that cannot be processed returns `status: "failed"` and a client-safe reason. Per-file failures do not interrupt the remaining files; the batch status is `partial` when any file fails or has an unrecognized type. Known fields that were not recognized are `null`; tables remain lists. Warnings identify missing or uncertain fields. The response does not include per-field confidence scores in this stage.
+Invoice fields use the English groups `identification`, `issuer`, `recipient`, `billing`, `taxesAndTotals`, `carrier`, `products`, and `additionalInformation`. All nested property names are English camelCase. Missing recognized-layout fields are `null`; warnings use English text and English property paths. No extracted values are translated.
 
-## Architecture and flow
+## Processing and storage
 
-1. A Fastify handler consumes all multipart files with the official `@fastify/multipart` plugin, validating count, size, extension, and PDF signature.
-2. Each file is written to a request-specific temporary directory using an application-generated name. The original name is retained only to identify the file in the response.
-3. The processor runs OCRmyPDF locally with Tesseract, the `por+eng` languages, deskewing, and a sidecar text file (`--sidecar`) to obtain OCR text. The expected inputs are scanned documents; sidecar extraction suits these files, which have no existing text layer.
-4. A deterministic classifier identifies the two layouts from text markers. Type-specific parsers convert the text into grouped fields and table rows. Extraction is best-effort and does not invent values; uncertainties and gaps produce warnings.
-5. Results are assembled in the order files were received. The temporary directory is removed in a `finally` block, including when OCR fails.
+1. The Fastify route validates multipart data, file count, size, extension, and PDF signature.
+2. Uploaded files are written under generated names to a request-scoped temporary directory; the original filename is retained for the response.
+3. OCRmyPDF and Tesseract run locally with Portuguese and English language data and sidecar text output.
+4. Deterministic layout parsers create grouped fields and table rows from the OCR text.
+5. The response is returned in upload order and the request directory is removed in a `finally` path.
 
-Processing remains synchronous and sequential to limit CPU and memory use. The handler does not send PDFs to third parties or store results in a database, permanent disk, or queue.
+The service does not send documents to third parties, persist files/results, or return temporary paths or subprocess diagnostics.
 
-## Errors and limits
+## Validation and limitations
 
-- A request without files or with invalid multipart data returns HTTP 400.
-- An invalid or corrupt PDF, an oversized file, or an OCR failure produces a `failed` result for that file while preserving other results when possible.
-- A readable document outside the known layouts produces `unrecognized`, with raw OCR text and a warning.
-- Internal errors do not expose temporary paths or raw subprocess output.
-- The application requires `ocrmypdf`, `tesseract`, and the `por` and `eng` language data to be installed. Missing tools must produce a clear operational error.
-
-## Validation
-
-- Handler tests cover a successful batch, partial failure, a non-PDF file, and temporary-file cleanup.
-- Parser tests use representative OCR text for both layouts and verify fields, lists, nulls, and warnings.
-- End-to-end validation submits the three supplied PDFs and checks classification, OCR text, and field structure without logging personal data.
-
-## Decisions and limitations
-
-- Local OCRmyPDF and Tesseract were chosen to keep documents in the API environment; an external OCR service was considered and is outside the scope.
-- JavaScript project dependencies were installed with `pnpm install` while implementing issue #3. OCRmyPDF, Tesseract, and the `por` and `eng` language data remain system-level runtime dependencies and are not installed by pnpm.
-- The structured JSON is specific to the two known layouts, while `ocrText` preserves recognized content for manual review.
-- The current development environment does not have `ocrmypdf`, `tesseract`, or `pdftotext` on `PATH`; processing the real PDFs will depend on installing the first two tools and their language data.
+- Fastify injection tests cover multipart validation, multiple files, ordering, per-file failures, limits, cleanup, and English response contracts.
+- Parser tests use representative OCR text in the language of each source layout and verify that values are preserved.
+- The supplied PDF end-to-end flow recognizes the shipping manifest. The two supplied DANFEs currently return `unrecognized`; their OCR text remains available for further parser work.
+- OCRmyPDF, Tesseract, and the `por` and `eng` language data must be installed on the runtime host.

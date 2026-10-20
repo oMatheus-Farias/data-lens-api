@@ -1,4 +1,4 @@
-# Per-file OCR for scanned remessas Implementation Plan
+# Per-file OCR for scanned shipments — Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -8,11 +8,11 @@
 
 **Tech Stack:** TypeScript, Fastify 5, `@fastify/multipart`, Node.js `node:test`, `tsx`, OCRmyPDF, Tesseract.
 
-**Spec:** `docs/superpowers/specs/2026-10-19-remessa-ocr-stage-design.md` and GitHub issue #2.
+**Spec:** `docs/superpowers/specs/2026-10-19-shipment-ocr-stage-design.md` and GitHub issue #2.
 
 ## Global Constraints
 
-- Endpoint: `POST /remessas/extrair` with repeated `files` multipart parts.
+- Endpoint: `POST /shipments/extract` with repeated `files` multipart parts.
 - Maximum: 10 PDFs per request and 25 MiB per file.
 - Preserve upload order and original filenames in the response.
 - OCR runs locally with `por+eng`, deskewing, and sidecar text output.
@@ -39,7 +39,7 @@
 
 - Modify: `package.json`
 - Modify: `pnpm-lock.yaml`
-- Create: `src/main/routes/extractRemessa.test.ts`
+- Create: `src/main/routes/extractShipments.test.ts`
 - Modify: `src/main/app.ts`
 
 **Interfaces:**
@@ -57,8 +57,8 @@
 
 **Files:**
 
-- Create: `src/main/routes/extractRemessa.ts`
-- Create: `src/main/routes/extractRemessa.test.ts` (extend)
+- Create: `src/main/routes/extractShipments.ts`
+- Create: `src/main/routes/extractShipments.test.ts` (extend)
 - Create: `src/main/utils/temporaryDirectory.ts` if a focused helper is needed
 
 **Interfaces:**
@@ -97,10 +97,12 @@
 
 **Files:**
 
-- Modify: `src/main/routes/extractRemessa.test.ts`
+- Modify: `src/main/routes/extractShipments.test.ts`
 
 - [x] Add a 25 MiB limit boundary test with no personal document content.
 - [x] Run all repository tests and typecheck.
 - [x] Run lint/format checks available in the project.
 - [x] Check the diff and status to confirm the supplied PDFs and unrelated files are not staged or changed.
-- [ ] Run real-PDF end-to-end OCR validation. Blocked in this environment because `ocrmypdf` and `tesseract` are not installed; install them with the `por` and `eng` language data to complete this check.
+- [x] Run real-PDF end-to-end OCR validation with OCRmyPDF, Tesseract, and the `por` and `eng` language data installed.
+
+End-to-end note: the supplied shipping manifest is classified and returned with structured fields. The two supplied DANFEs remain unrecognized by the current parser.

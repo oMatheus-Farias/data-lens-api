@@ -1,4 +1,4 @@
-# Per-file OCR results for scanned remessas
+# Per-file OCR results for scanned shipment batches
 
 ## Context
 
@@ -6,11 +6,11 @@ Issue #2 is the first implementation increment under issue #1. It establishes sa
 
 ## Goal
 
-Allow an API client to submit one remessa containing multiple scanned PDFs and receive one ordered OCR result per file, with each result tied to its original filename. A failure processing one file must not discard results for the others.
+Allow an API client to submit one shipment containing multiple scanned PDFs and receive one ordered OCR result per file, with each result tied to its original filename. A failure processing one file must not discard results for the others.
 
 ## HTTP contract
 
-- `POST /remessas/extrair`
+- `POST /shipments/extract`
 - Request content type: `multipart/form-data`
 - The request contains one or more repeated `files` parts.
 - Accept at most 10 PDF files, with a maximum size of 25 MiB per file.
@@ -52,6 +52,6 @@ The API does not send documents to an external service and does not persist uplo
 
 ## Out of scope
 
-- Recognizing romaneio or DANFE layouts.
+- Recognizing shipping manifest or DANFE layouts.
 - Extracting structured fields, tables, or parser warnings.
 - Persisting documents or results, queues, asynchronous processing, cloud OCR, and cross-document reconciliation.
