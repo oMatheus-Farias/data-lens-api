@@ -74,5 +74,6 @@ Processing remains synchronous and sequential to limit CPU and memory use. The h
 ## Decisions and limitations
 
 - Local OCRmyPDF and Tesseract were chosen to keep documents in the API environment; an external OCR service was considered and is outside the scope.
+- JavaScript project dependencies were installed with `pnpm install` while implementing issue #3. OCRmyPDF, Tesseract, and the `por` and `eng` language data remain system-level runtime dependencies and are not installed by pnpm.
 - The structured JSON is specific to the two known layouts, while `ocrText` preserves recognized content for manual review.
 - The current development environment does not have `ocrmypdf`, `tesseract`, or `pdftotext` on `PATH`; processing the real PDFs will depend on installing the first two tools and their language data.

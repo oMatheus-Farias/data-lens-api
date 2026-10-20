@@ -90,6 +90,125 @@ test('returns OCR results in upload order with original filenames', async () => 
   });
 });
 
+test('classifies a DANFE and returns organized fields and complete OCR text', async () => {
+  const danfeOcr = [
+    'ACME EXEMPLO LTDA',
+    'CNPJ: 00.000.000/0001-00',
+    'ENDEREÇO: Rua Industrial, 100',
+    'MUNICÍPIO: São Paulo',
+    'UF: SP',
+    'CEP: 01000-000',
+    'DANFE',
+    'DOCUMENTO AUXILIAR DA NOTA FISCAL ELETRÔNICA',
+    'NÚMERO: 12345',
+    'SÉRIE: 2',
+    'CHAVE DE ACESSO: 35261012345678000199550020000123451000012345',
+    'NATUREZA DA OPERAÇÃO: Venda de mercadoria',
+    'DESTINATÁRIO / REMETENTE',
+    'NOME / RAZÃO SOCIAL: Cliente Exemplo Ltda',
+    'CNPJ / CPF: 11.111.111/0001-11',
+    'IE: 123456789',
+    'ENDEREÇO: Rua Comercial, 200',
+    'MUNICÍPIO: Campinas',
+    'UF: SP',
+    'CEP: 13000-000',
+    'DATA DE EMISSÃO: 01/10/2026',
+    'CÁLCULO DO IMPOSTO',
+    'BASE DE CÁLCULO DO ICMS: 20,00',
+    'VALOR DO ICMS: 3,60',
+    'VALOR DOS PRODUTOS: 20,00',
+    'VALOR TOTAL DA NOTA: 20,00',
+    'TRANSPORTADOR / VOLUMES TRANSPORTADOS',
+    'NOME / RAZÃO SOCIAL: Transportes Exemplo',
+    'CNPJ / CPF: 22.222.222/0001-22',
+    'FRETE POR CONTA: 0',
+    'PLACA DO VEÍCULO: ABC1234',
+    'ENDEREÇO: Rua Logística, 300',
+    'MUNICÍPIO: Santos',
+    'UF: SP',
+    'QUANTIDADE: 2',
+    'ESPÉCIE: Caixa',
+    'MARCA: Exemplo',
+    'NUMERAÇÃO: 1-2',
+    'PESO BRUTO: 4,00',
+    'PESO LÍQUIDO: 3,00',
+    'DADOS DOS PRODUTOS / SERVIÇOS',
+    'CÓDIGO DESCRIÇÃO NCM CST CFOP UN QTD VLR UNIT VLR TOTAL BC ICMS V ICMS V IPI ALIQ ICMS ALIQ IPI',
+    'A-1 Produto exemplo 12345678 00 5102 UN 2 10,00 20,00 20,00 3,60 0,00 18,00 0,00',
+    'B-2 Produto parcial 87654321 00 5102 UN 1 1,00 1,00',
+    'DADOS ADICIONAIS:',
+    'Informação complementar reconhecida',
+  ].join('\n');
+  const app = buildApp({ processDocument: async () => danfeOcr });
+
+  try {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/remessas/extrair',
+      headers: { 'content-type': `multipart/form-data; boundary=${boundary}` },
+      payload: createMultipart([{ filename: 'danfe.pdf', content: pdf('sample') }]),
+    });
+
+    assert.equal(response.statusCode, 200);
+    const document = response.json().documents[0];
+    assert.equal(document.documentType, 'danfe');
+    assert.equal(document.status, 'success');
+    assert.equal(document.fileName, 'danfe.pdf');
+    assert.equal(document.ocrText, danfeOcr);
+    assert.equal(document.fields.identificacao.numero, '12345');
+    assert.equal(document.fields.identificacao.serie, '2');
+    assert.equal(document.fields.emitente.razaoSocial, 'ACME EXEMPLO LTDA');
+    assert.equal(document.fields.emitente.cnpj, '00.000.000/0001-00');
+    assert.equal(document.fields.destinatario.razaoSocial, 'Cliente Exemplo Ltda');
+    assert.equal(document.fields.destinatario.cnpjCpf, '11.111.111/0001-11');
+    assert.equal(document.fields.destinatario.endereco, 'Rua Comercial, 200');
+    assert.equal(document.fields.transportador.razaoSocial, 'Transportes Exemplo');
+    assert.equal(document.fields.transportador.placaVeiculo, 'ABC1234');
+    assert.equal(document.fields.tributosETotais.valorIcms, '3,60');
+    assert.equal(document.fields.tributosETotais.valorTotal, '20,00');
+    assert.deepEqual(document.fields.produtos, [
+      {
+        codigo: 'A-1',
+        descricao: 'Produto exemplo',
+        ncm: '12345678',
+        cst: '00',
+        cfop: '5102',
+        unidade: 'UN',
+        quantidade: '2',
+        valorUnitario: '10,00',
+        valorTotal: '20,00',
+        baseCalculoIcms: '20,00',
+        valorIcms: '3,60',
+        valorIpi: '0,00',
+        aliquotaIcms: '18,00',
+        aliquotaIpi: '0,00',
+      },
+      {
+        codigo: 'B-2',
+        descricao: 'Produto parcial',
+        ncm: '87654321',
+        cst: '00',
+        cfop: '5102',
+        unidade: 'UN',
+        quantidade: '1',
+        valorUnitario: '1,00',
+        valorTotal: '1,00',
+        baseCalculoIcms: null,
+        valorIcms: null,
+        valorIpi: null,
+        aliquotaIcms: null,
+        aliquotaIpi: null,
+      },
+    ]);
+    assert.equal(document.fields.informacoesAdicionais, 'Informação complementar reconhecida');
+    assert.ok(document.warnings.length > 0);
+    assert.ok(document.warnings.includes('produtos[1].valorIcms: campo não reconhecido no OCR'));
+    assert.equal(JSON.stringify(document).includes('undefined'), false);
+  } finally {
+    await app.close();
+  }
+});
+
 test('reports a failed PDF safely and continues processing later files', async () => {
   await withApp(async (app) => {
     const response = await app.inject({
