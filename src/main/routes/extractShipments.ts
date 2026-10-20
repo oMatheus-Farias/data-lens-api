@@ -4,8 +4,7 @@ import { tmpdir } from 'node:os';
 import { basename, extname, join } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 
-import { extractInvoice } from '@application/documents/InvoiceExtractor';
-import { extractShippingManifest } from '@application/documents/ShippingManifestExtractor';
+import { extractRomaneio } from '@application/documents/RomaneioExtractor';
 import { ErrorCode } from '@application/errors/ErrorCode';
 import fastifyMultipart from '@fastify/multipart';
 import { env } from '@shared/config/env';
@@ -208,11 +207,12 @@ export function registerExtractShipmentsRoute(
         throw VALIDATION_ERROR;
       }
 
-      const documents = [];
+      const docExtracts = [];
 
       for (const file of uploadedFiles) {
         if (file.failureReason) {
-          documents.push({
+          docExtracts.push({
+            type: 'failed',
             fileName: file.fileName,
             status: 'failed',
             reason: file.failureReason,
@@ -226,31 +226,19 @@ export function registerExtractShipmentsRoute(
             typeof processingResult === 'string'
               ? [{ pageNumber: 1, ocrText: processingResult }]
               : processingResult;
-          documents.push(
-            ...pages.map((page) => {
-              const extraction =
-                extractShippingManifest(page.ocrText) ?? extractInvoice(page.ocrText);
-
-              return extraction
-                ? {
-                    fileName: file.fileName,
-                    pageNumber: page.pageNumber,
-                    documentType: extraction.documentType,
-                    status: 'success',
-                    fields: extraction.fields,
-                    ocrText: page.ocrText,
-                    warnings: extraction.warnings,
-                  }
-                : {
-                    fileName: file.fileName,
-                    pageNumber: page.pageNumber,
-                    status: 'unrecognized',
-                    ocrText: page.ocrText,
-                  };
-            }),
+          docExtracts.push(
+            ...pages.map(
+              (page) =>
+                extractRomaneio(page.ocrText, page.pageNumber) ?? {
+                  type: 'unrecognized',
+                  pageNumber: page.pageNumber,
+                  ocrText: page.ocrText,
+                },
+            ),
           );
         } catch {
-          documents.push({
+          docExtracts.push({
+            type: 'failed',
             fileName: file.fileName,
             status: 'failed',
             reason: PROCESSING_FAILURE_REASON,
@@ -258,7 +246,7 @@ export function registerExtractShipmentsRoute(
         }
       }
 
-      responseBody = { documents };
+      responseBody = { docExtracts };
     } catch (error) {
       if (error === VALIDATION_ERROR || isMultipartValidationError(error)) {
         statusCode = 400;

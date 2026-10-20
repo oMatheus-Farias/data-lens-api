@@ -4,7 +4,7 @@
 
 `POST /shipments/extract` accepts exactly one PDF in the `file` field of `multipart/form-data`, up to 25 MiB. Both the `.pdf` extension and PDF signature are checked.
 
-Each response item includes the source `fileName`, `pageNumber`, a `status` (`success`, `unrecognized`, or `failed`), and OCR text when available. Recognized Romaneios and DANFEs also include structured `fields` and `warnings`. Extracted values and OCR text retain the source document's language; API names and messages are English.
+The response uses `docExtracts`. Recognized Romaneios are returned as `shippingList` records with `pageNumber`, `shipname`, `shipment`, `dn`, `total`, and each Fiscal Note row in `data`. Pages not recognized as a Romaneio include their page number and OCR text. Extracted values and OCR text retain the source document's language; API names and messages are English.
 
 ## OCR
 
