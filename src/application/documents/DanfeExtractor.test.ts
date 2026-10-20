@@ -203,3 +203,31 @@ test('recovers recipient neighborhood when Vision separates the label from its v
 
   assert.equal(extractDanfe(text, 1)?.recipient.neighborhood, 'SANTO AMARO');
 });
+
+test('finds recipient section when OCR accents the last letter in its heading', () => {
+  const text = [
+    'DANFE NOTA FISCAL ELETRÔNICA',
+    'DESTINATÁRIO / REMETENTË',
+    'LOGRADOURO',
+    'AV. ADOLFO PINHEIRO. 1180',
+    'BAIRRO/DISTRITO',
+    'SANTO AMARO',
+    'FATURA',
+    'NÚMERO',
+    'COMPLEMENTO',
+    'CNPJ / CPF',
+    '49.707.557/0010-47',
+    'CEP',
+    '04734-002',
+    'MUNICIPIO',
+    'SAO PAULO',
+  ].join('\n');
+  const result = extractDanfe(text, 4);
+
+  assert.equal(result?.recipient.street, 'AV. ADOLFO PINHEIRO. 1180');
+  assert.equal(result?.recipient.neighborhood, 'SANTO AMARO');
+  assert.equal(result?.recipient.postalCode, '04734-002');
+  assert.equal(result?.recipient.municipality, 'SAO PAULO');
+  assert.equal(result?.recipient.number, '1180');
+  assert.equal(result?.recipient.complement, null);
+});

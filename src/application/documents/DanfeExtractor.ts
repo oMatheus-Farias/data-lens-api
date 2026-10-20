@@ -78,13 +78,38 @@ function numberAfterStreet(text: string): string | null {
       continue;
     }
 
-    let valueIndex = index;
-    if (!clean(streetMatch[1])) {
-      valueIndex += 1;
+    const inlineStreet = clean(streetMatch[1]);
+    const streetValueLine = inlineStreet ?? lines[index + 1]?.trim();
+    const inlineNumber = streetValueLine?.match(/(?:^|[\s,.])([\d]+[A-Z]?(?:[-/]\w+)?)$/i)?.[1];
+    if (inlineNumber) {
+      return inlineNumber;
     }
-    const followingLine = lines[valueIndex + 1]?.trim();
+
+    const followingLine = inlineStreet ? lines[index + 1]?.trim() : lines[index + 2]?.trim();
     if (followingLine && /^\d+[A-Z]?(?:[-/]\w+)?$/i.test(followingLine)) {
       return followingLine;
+    }
+  }
+
+  return null;
+}
+
+function labeledPostalCode(text: string): string | null {
+  const lines = text.split('\n');
+  const postalCodePattern = /(?<!\d)\d{5}-?\d{3}(?!\d)/;
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const labelMatch = lines[index]?.match(PARTY_LABELS.postalCode);
+    if (!labelMatch) {
+      continue;
+    }
+
+    const candidates = [labelMatch[1], ...lines.slice(index + 1, index + 5)];
+    for (const candidateLine of candidates) {
+      const candidate = candidateLine?.match(postalCodePattern)?.[0];
+      if (candidate) {
+        return candidate;
+      }
     }
   }
 
@@ -138,10 +163,19 @@ function cnpjValues(text: string): string[] {
   return values;
 }
 
-function recipientNeighborhood(recipientText: string, documentText: string): string | null {
+function recipientNeighborhood(
+  recipientText: string,
+  documentRemainder: string,
+  documentText: string,
+): string | null {
   const neighborhood = labeledValue(recipientText, PARTY_LABELS.neighborhood);
   if (neighborhood) {
     return neighborhood;
+  }
+
+  const reorderedNeighborhood = labeledValue(documentRemainder, PARTY_LABELS.neighborhood);
+  if (reorderedNeighborhood) {
+    return reorderedNeighborhood;
   }
 
   if (
@@ -195,24 +229,29 @@ function party(
   text: string,
   includeDn = false,
   documentText = text,
+  documentRemainder = text,
 ): IDanfeParty & { dn?: string | null } {
   const number = numberAfterStreet(text) ?? labeledValue(text, PARTY_LABELS.number);
   const complement = labeledValue(text, PARTY_LABELS.complement);
+  const fallbackValue = (pattern: RegExp): string | null =>
+    includeDn ? labeledValue(documentRemainder, pattern) : null;
   const result: IDanfeParty & { dn?: string | null } = {
     street: labeledValue(text, PARTY_LABELS.street),
     neighborhood: includeDn
-      ? recipientNeighborhood(text, documentText)
+      ? recipientNeighborhood(text, documentRemainder, documentText)
       : labeledValue(text, PARTY_LABELS.neighborhood),
-    postalCode: labeledValue(text, PARTY_LABELS.postalCode),
-    number,
+    postalCode:
+      labeledPostalCode(text) ?? (includeDn ? labeledPostalCode(documentRemainder) : null),
+    number: number ?? fallbackValue(PARTY_LABELS.number),
     complement: complement === number ? null : complement,
-    municipality: labeledValue(text, PARTY_LABELS.municipality),
-    phone_fax: labeledValue(text, PARTY_LABELS.phone_fax),
+    municipality:
+      labeledValue(text, PARTY_LABELS.municipality) ?? fallbackValue(PARTY_LABELS.municipality),
+    phone_fax: labeledValue(text, PARTY_LABELS.phone_fax) ?? fallbackValue(PARTY_LABELS.phone_fax),
     cnpjCpf: cnpjValues(text)[0] ?? labeledValue(text, PARTY_LABELS.cnpjCpf),
   };
 
   if (includeDn) {
-    result.dn = labeledValue(text, PARTY_LABELS.dn);
+    result.dn = labeledValue(text, PARTY_LABELS.dn) ?? fallbackValue(PARTY_LABELS.dn);
   }
 
   return result;
@@ -260,7 +299,7 @@ export function extractDanfe(ocrText: string, pageNumber: number): IDanfeExtract
     return null;
   }
 
-  const recipientHeading = /DESTINAT[AÁ]RIO\s*[-/]?\s*REMETENTE/i;
+  const recipientHeading = /DESTINAT[AÁ]RIO\s*[-/]?\s*REMETENT[EÈÉÊË]/i;
   const recipientHeadingMatch = recipientHeading.exec(text);
   const recipientStart = recipientHeadingMatch
     ? recipientHeadingMatch.index + recipientHeadingMatch[0].length
@@ -291,7 +330,12 @@ export function extractDanfe(ocrText: string, pageNumber: number): IDanfeExtract
   const tableAmounts = footerTableAmounts(text);
   const sender = party(senderText);
   sender.cnpjCpf = cnpjs[0] ?? sender.cnpjCpf;
-  const recipient = party(recipientText, true, text) as IDanfeParty & { dn: string | null };
+  const recipient = party(
+    recipientText,
+    true,
+    text,
+    recipientStart >= 0 ? text.slice(recipientStart) : '',
+  ) as IDanfeParty & { dn: string | null };
   recipient.cnpjCpf = cnpjs.at(-1) ?? recipient.cnpjCpf;
 
   return {
