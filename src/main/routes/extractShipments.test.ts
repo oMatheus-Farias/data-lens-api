@@ -74,6 +74,32 @@ test('accepts one PDF in the singular file field and returns OCR pages in order'
   });
 });
 
+test('returns DANFE OCR pages as nfDanfe records with their page number', async () => {
+  const app = buildApp({
+    processDocument: async () => [
+      {
+        pageNumber: 4,
+        ocrText: 'DANFE NOTA FISCAL ELETRÔNICA\nNÚMERO DA NOTA: 000123\nSÉRIE: 001',
+      },
+    ],
+  });
+  try {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/shipments/extract',
+      headers: { 'content-type': `multipart/form-data; boundary=${boundary}` },
+      payload: createMultipart([{ filename: 'danfe.pdf', content: pdf('fixture') }]),
+    });
+
+    assert.equal(response.statusCode, 200);
+    assert.equal(response.json().docExtracts[0].type, 'nfDanfe');
+    assert.equal(response.json().docExtracts[0].pageNumber, 4);
+    assert.equal(response.json().docExtracts[0].invoice_number, '000123');
+  } finally {
+    await app.close();
+  }
+});
+
 test('rejects missing, multiple, wrong-field, and non-PDF uploads', async () => {
   await withApp(async (app) => {
     const headers = { 'content-type': `multipart/form-data; boundary=${boundary}` };
