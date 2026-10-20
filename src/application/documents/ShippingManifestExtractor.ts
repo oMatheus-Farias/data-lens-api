@@ -107,19 +107,23 @@ function extractRoute(
 }
 
 function parseEnglishBoxRow(line: string): IShippingManifestBox | null {
-  const match = line.match(/^\s*(\S+)\s+(\S+)\s+(\S+)\s+([\d.,]+)\s+([\d.,]+)\s+([\d.,]+)\s*$/);
+  const columns = line.trim().split(/\s+/);
 
-  if (!match) {
+  if (
+    columns.length < 3 ||
+    columns.length > 6 ||
+    !/^(?:NF(?:-?E)?\s*[:#-]?\s*)?[\d./-]+$/i.test(columns[2] ?? '')
+  ) {
     return null;
   }
 
   return {
-    reference: match[1] ?? null,
-    code: match[2] ?? null,
-    invoiceNumber: match[3] ?? null,
-    weight: match[4] ?? null,
-    cubicWeight: match[5] ?? null,
-    volume: match[6] ?? null,
+    reference: columns[0] ?? null,
+    code: columns[1] ?? null,
+    invoiceNumber: columns[2] ?? null,
+    weight: columns[3] ?? null,
+    cubicWeight: columns[4] ?? null,
+    volume: columns[5] ?? null,
   };
 }
 
@@ -345,13 +349,14 @@ export function extractShippingManifest(ocrText: string): IShippingManifestExtra
   const text = normalizedText(ocrText);
   const firstNonemptyLine = text.split('\n').find((line) => line.trim()) ?? '';
   const hasPortugueseManifestHeading = /^\s*ROMANEIO\b/i.test(firstNonemptyLine);
+  const hasEnglishManifestHeading = /^\s*(?:NEW\s+)?SHIPPING\s+LIST\b/i.test(firstNonemptyLine);
   const hasEnglishManifestMarkers =
     /\bSHIPPING\s+LIST\b/i.test(text) &&
     /\bSHIPMENT\b/i.test(text) &&
     /\bCARRIER\b/i.test(text) &&
     /\bBOX\b/i.test(text);
 
-  if (!hasPortugueseManifestHeading && !hasEnglishManifestMarkers) {
+  if (!hasPortugueseManifestHeading && !hasEnglishManifestHeading && !hasEnglishManifestMarkers) {
     return null;
   }
 

@@ -32,7 +32,7 @@ function pdf(content: string) {
 async function withApp<T>(run: (app: ReturnType<typeof buildApp>) => Promise<T>) {
   const app = buildApp({
     processDocument: async () => [
-      { pageNumber: 1, ocrText: 'unrecognized page text' },
+      { pageNumber: 1, ocrText: 'New Shipping List' },
       { pageNumber: 2, ocrText: 'second page text' },
     ],
   });
@@ -54,17 +54,19 @@ test('accepts one PDF in the singular file field and returns OCR pages in order'
 
     assert.equal(response.statusCode, 200);
     assert.deepEqual(response.json(), {
-      documents: [
+      docExtracts: [
         {
-          fileName: 'batch.pdf',
+          type: 'shippingList',
           pageNumber: 1,
-          status: 'unrecognized',
-          ocrText: 'unrecognized page text',
+          shipname: null,
+          shipment: null,
+          dn: { number: null },
+          total: { realWt: null, cubicWt: null, Vol: null },
+          data: [],
         },
         {
-          fileName: 'batch.pdf',
+          type: 'unrecognized',
           pageNumber: 2,
-          status: 'unrecognized',
           ocrText: 'second page text',
         },
       ],
@@ -128,8 +130,13 @@ test('cleans up request files when OCR processing fails and returns a safe error
 
     assert.equal(response.statusCode, 200);
     assert.deepEqual(response.json(), {
-      documents: [
-        { fileName: 'batch.pdf', status: 'failed', reason: 'Document could not be processed' },
+      docExtracts: [
+        {
+          type: 'failed',
+          fileName: 'batch.pdf',
+          status: 'failed',
+          reason: 'Document could not be processed',
+        },
       ],
     });
     assert.deepEqual(await readdir(root), []);
