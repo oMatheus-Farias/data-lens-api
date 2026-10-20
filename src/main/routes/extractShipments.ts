@@ -12,14 +12,16 @@ import fastifyMultipart from '@fastify/multipart';
 import type { FastifyInstance } from 'fastify';
 
 import { OcrmypdfDocumentProcessor } from '../../infrastructure/documents/OcrmypdfDocumentProcessor';
+import { TesseractDocumentProcessor } from '../../infrastructure/documents/TesseractDocumentProcessor';
 
 const MAX_FILES = 10;
 const MAX_FILE_SIZE_BYTES = 25 * 1024 * 1024;
 const PDF_SIGNATURE = Buffer.from('%PDF-');
+const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 const MALFORMED_MULTIPART_MESSAGE = 'Malformed multipart request';
-const MISSING_FILES_MESSAGE = "At least one PDF file is required in the 'files' field";
-const INVALID_PDF_MESSAGE = "The 'files' field must contain PDF files";
-const TOO_MANY_FILES_MESSAGE = 'A maximum of 10 PDF files is allowed';
+const MISSING_FILES_MESSAGE = "At least one supported document is required in the 'files' field";
+const INVALID_FILE_MESSAGE = "The 'files' field must contain PDF, PNG, JPG, or JPEG files";
+const TOO_MANY_FILES_MESSAGE = 'A maximum of 10 files is allowed';
 const PROCESSING_FAILURE_REASON = 'Document could not be processed';
 const VALIDATION_ERROR = Symbol('validation-error');
 
@@ -58,14 +60,20 @@ function isMultipartValidationError(error: unknown): boolean {
   );
 }
 
-async function hasPdfSignature(filePath: string): Promise<boolean> {
+async function hasSupportedSignature(filePath: string, fileExtension: string): Promise<boolean> {
   const file = await open(filePath, 'r');
-  const header = Buffer.alloc(PDF_SIGNATURE.length);
+  const signature =
+    fileExtension === '.pdf'
+      ? PDF_SIGNATURE
+      : fileExtension === '.png'
+        ? PNG_SIGNATURE
+        : Buffer.from([0xff, 0xd8, 0xff]);
+  const header = Buffer.alloc(signature.length);
 
   try {
     const { bytesRead } = await file.read(header, 0, header.length, 0);
 
-    return bytesRead === PDF_SIGNATURE.length && header.equals(PDF_SIGNATURE);
+    return bytesRead === signature.length && header.equals(signature);
   } finally {
     await file.close();
   }
@@ -78,7 +86,15 @@ export function registerExtractShipmentsRoute(
   const maxFileSizeBytes = options.maxFileSizeBytes ?? MAX_FILE_SIZE_BYTES;
   const documentProcessor: IDocumentProcessor = options.processDocument
     ? { process: options.processDocument }
-    : new OcrmypdfDocumentProcessor();
+    : {
+        async process(filePath, workDirectory) {
+          if (extname(filePath).toLowerCase() === '.pdf') {
+            return new OcrmypdfDocumentProcessor().process(filePath, workDirectory);
+          }
+
+          return new TesseractDocumentProcessor().process(filePath);
+        },
+      };
   const cleanupTemporaryDirectory =
     options.cleanupTemporaryDirectory ??
     ((directory: string) => rm(directory, { recursive: true, force: true }));
@@ -149,8 +165,9 @@ export function registerExtractShipmentsRoute(
         }
 
         const fileIndex = uploadedFiles.length + 1;
-        const filePath = join(workDirectory, `upload-${fileIndex}.pdf`);
         const fileName = part.filename;
+        const fileExtension = extname(basename(fileName)).toLowerCase();
+        const filePath = join(workDirectory, `upload-${fileIndex}${fileExtension}`);
         const uploadedFile: IUploadedFile = { fileName, filePath };
         uploadedFiles.push(uploadedFile);
 
@@ -174,8 +191,8 @@ export function registerExtractShipmentsRoute(
         }
 
         if (
-          extname(basename(fileName)).toLowerCase() !== '.pdf' ||
-          !(await hasPdfSignature(filePath))
+          !['.pdf', '.png', '.jpg', '.jpeg'].includes(fileExtension) ||
+          !(await hasSupportedSignature(filePath, fileExtension))
         ) {
           invalidField = true;
         }
@@ -196,7 +213,7 @@ export function registerExtractShipmentsRoute(
       }
 
       if (invalidField) {
-        validationMessage = INVALID_PDF_MESSAGE;
+        validationMessage = INVALID_FILE_MESSAGE;
         throw VALIDATION_ERROR;
       }
 

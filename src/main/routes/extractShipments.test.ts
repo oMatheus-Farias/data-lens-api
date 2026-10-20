@@ -38,6 +38,17 @@ function pdf(content: string) {
   return `%PDF-1.4\n${content}\n%%EOF`;
 }
 
+function png(content: string) {
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    Buffer.from(content),
+  ]);
+}
+
+function jpeg(content: string) {
+  return Buffer.concat([Buffer.from([0xff, 0xd8, 0xff]), Buffer.from(content)]);
+}
+
 async function withApp<T>(run: (app: ReturnType<typeof buildApp>) => Promise<T>) {
   const app = buildApp({
     processDocument: async (filePath) => {
@@ -88,6 +99,51 @@ test('returns OCR results in upload order with original filenames', async () => 
       ],
     });
   });
+});
+
+test('accepts image files alongside PDFs and preserves the mixed upload order', async () => {
+  const processedExtensions: string[] = [];
+  const app = buildApp({
+    processDocument: async (filePath) => {
+      const { extname } = await import('node:path');
+      processedExtensions.push(extname(filePath));
+
+      return `recognized ${extname(filePath)}`;
+    },
+  });
+
+  try {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/shipments/extract',
+      headers: { 'content-type': `multipart/form-data; boundary=${boundary}` },
+      payload: createMultipart([
+        { filename: 'manifest.png', content: png('image'), contentType: 'image/png' },
+        { filename: 'photo.jpg', content: jpeg('image'), contentType: 'image/jpeg' },
+        { filename: 'scan.jpeg', content: jpeg('image'), contentType: 'image/jpeg' },
+        { filename: 'invoice.pdf', content: pdf('pdf') },
+      ]),
+    });
+
+    assert.equal(response.statusCode, 200);
+    assert.deepEqual(processedExtensions, ['.png', '.jpg', '.jpeg', '.pdf']);
+    assert.deepEqual(
+      response
+        .json()
+        .documents.map((document: { fileName: string; ocrText: string }) => [
+          document.fileName,
+          document.ocrText,
+        ]),
+      [
+        ['manifest.png', 'recognized .png'],
+        ['photo.jpg', 'recognized .jpg'],
+        ['scan.jpeg', 'recognized .jpeg'],
+        ['invoice.pdf', 'recognized .pdf'],
+      ],
+    );
+  } finally {
+    await app.close();
+  }
 });
 
 test('exposes the English shipment endpoint and removes the Portuguese endpoint', async () => {
@@ -370,12 +426,12 @@ test('rejects requests without files', async () => {
     assert.equal(response.json().error.code, 'VALIDATION');
     assert.equal(
       response.json().error.message,
-      "At least one PDF file is required in the 'files' field",
+      "At least one supported document is required in the 'files' field",
     );
   });
 });
 
-test('rejects non-PDF content before invoking the processor', async () => {
+test('rejects file content without a matching signature before invoking the processor', async () => {
   const app = buildApp({
     processDocument: async () => {
       assert.fail('non-PDF uploads must not be processed');
@@ -392,7 +448,35 @@ test('rejects non-PDF content before invoking the processor', async () => {
 
     assert.equal(response.statusCode, 400);
     assert.equal(response.json().error.code, 'VALIDATION');
-    assert.equal(response.json().error.message, "The 'files' field must contain PDF files");
+    assert.equal(
+      response.json().error.message,
+      "The 'files' field must contain PDF, PNG, JPG, or JPEG files",
+    );
+  } finally {
+    await app.close();
+  }
+});
+
+test('rejects image files whose content does not match the image extension', async () => {
+  const app = buildApp({
+    processDocument: async () => {
+      assert.fail('invalid image uploads must not be processed');
+    },
+  });
+
+  try {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/shipments/extract',
+      headers: { 'content-type': `multipart/form-data; boundary=${boundary}` },
+      payload: createMultipart([{ filename: 'not-an-image.png', content: 'invalid image' }]),
+    });
+
+    assert.equal(response.statusCode, 400);
+    assert.equal(
+      response.json().error.message,
+      "The 'files' field must contain PDF, PNG, JPG, or JPEG files",
+    );
   } finally {
     await app.close();
   }
@@ -413,7 +497,7 @@ test('rejects malformed multipart input', async () => {
   });
 });
 
-test('rejects batches containing more than ten PDFs', async () => {
+test('rejects batches containing more than ten files', async () => {
   await withApp(async (app) => {
     const response = await app.inject({
       method: 'POST',
@@ -429,7 +513,7 @@ test('rejects batches containing more than ten PDFs', async () => {
 
     assert.equal(response.statusCode, 400);
     assert.equal(response.json().error.code, 'VALIDATION');
-    assert.equal(response.json().error.message, 'A maximum of 10 PDF files is allowed');
+    assert.equal(response.json().error.message, 'A maximum of 10 files is allowed');
   });
 });
 
@@ -479,7 +563,7 @@ test('returns a size failure for an oversized file and continues with later file
   }
 });
 
-test('rejects oversized non-PDF content as invalid input', async () => {
+test('rejects oversized content without a valid file signature', async () => {
   const app = buildApp({
     maxFileSizeBytes: 16,
     processDocument: async () => 'should not run',
@@ -495,7 +579,10 @@ test('rejects oversized non-PDF content as invalid input', async () => {
 
     assert.equal(response.statusCode, 400);
     assert.equal(response.json().error.code, 'VALIDATION');
-    assert.equal(response.json().error.message, "The 'files' field must contain PDF files");
+    assert.equal(
+      response.json().error.message,
+      "The 'files' field must contain PDF, PNG, JPG, or JPEG files",
+    );
   } finally {
     await app.close();
   }
