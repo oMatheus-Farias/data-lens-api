@@ -11,6 +11,7 @@ export interface IOcrPage {
 
 type IRenderPdf = (pdfPath: string, workDirectory: string) => Promise<string[]>;
 type IRequest = (url: string, init: RequestInit) => Promise<Response>;
+type IOcrDebugLogger = (page: IOcrPage) => void;
 
 const require = createRequire(import.meta.url);
 const pdfToImgRequire = createRequire(require.resolve('pdf-to-img'));
@@ -45,6 +46,9 @@ export class CloudVisionDocumentProcessor {
     private readonly apiKey: string | undefined,
     private readonly runRenderer: IRenderPdf = renderPdf,
     private readonly request: IRequest = fetch,
+    private readonly debugOcr = false,
+    private readonly logOcrPage: IOcrDebugLogger = (page) =>
+      process.stdout.write(`[cloud-vision-ocr] ${JSON.stringify(page)}\n`),
   ) {}
 
   async process(pdfPath: string, workDirectory: string): Promise<IOcrPage[]> {
@@ -103,11 +107,15 @@ export class CloudVisionDocumentProcessor {
         }
 
         for (const [index, result] of (payload.responses ?? []).entries()) {
-          pages.push({
+          const page = {
             pageNumber: offset + index + 1,
             ocrText:
               result.fullTextAnnotation?.text ?? result.textAnnotations?.[0]?.description ?? '',
-          });
+          };
+          pages.push(page);
+          if (this.debugOcr) {
+            this.logOcrPage(page);
+          }
         }
         for (let index = (payload.responses ?? []).length; index < batchPaths.length; index += 1) {
           pages.push({ pageNumber: offset + index + 1, ocrText: '' });

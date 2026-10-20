@@ -61,7 +61,6 @@ test('accepts one PDF in the singular file field and returns OCR pages in order'
           shipname: null,
           shipment: null,
           dn: { number: null },
-          total: { realWt: null, cubicWt: null, Vol: null },
           data: [],
         },
         {
@@ -116,6 +115,64 @@ test('returns Romaneio to DANFE matches alongside all extracted pages', async ()
         romaneioPageNumber: 1,
         romaneioRowNumber: 1,
         danfePageNumber: 5,
+        candidatePageNumbers: [],
+      },
+    ]);
+  } finally {
+    await app.close();
+  }
+});
+
+test('matches a column-oriented Romaneio row to its DANFE through the extract endpoint', async () => {
+  const app = buildApp({
+    processDocument: async () => [
+      {
+        pageNumber: 1,
+        ocrText: [
+          'New Shipping List',
+          'Shipname TEST-SHIP',
+          'Shipment 6500000000',
+          'DN',
+          '1147',
+          'Box Number',
+          '55510000000',
+          'Box Code',
+          'CODE-1',
+          'Fiscal Note',
+          '000000123-45',
+          'Total',
+          'Real Wt (Kg)',
+          '10,000',
+          '10,000',
+          'Cubic Wt (Kg)',
+          '20,000',
+          'Vol (m³)',
+          '0,100',
+          '0,100',
+        ].join('\n'),
+      },
+      {
+        pageNumber: 2,
+        ocrText: 'DANFE\nNOTA FISCAL ELETRÔNICA\nN°\n000000123\nSÉRIE\n45',
+      },
+    ],
+  });
+  try {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/shipments/extract',
+      headers: { 'content-type': `multipart/form-data; boundary=${boundary}` },
+      payload: createMultipart([{ filename: 'batch.pdf', content: pdf('fixture') }]),
+    });
+
+    assert.equal(response.statusCode, 200);
+    assert.deepEqual(response.json().matches, [
+      {
+        status: 'matched',
+        fiscalNote: '000000123-45',
+        romaneioPageNumber: 1,
+        romaneioRowNumber: 1,
+        danfePageNumber: 2,
         candidatePageNumbers: [],
       },
     ]);

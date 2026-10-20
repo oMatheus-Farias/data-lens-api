@@ -9,7 +9,6 @@ const romaneio = {
   shipname: 'BR-PIQ1623',
   shipment: '0006500117770',
   dn: { number: '1147' },
-  total: { realWt: null, cubicWt: null, Vol: null },
   data: [
     { fiscalNote: '000864375-69', realWt: '1,00', cubicWt: null, Vol: null },
     { fiscalNote: '000864376-70', realWt: '2,00', cubicWt: null, Vol: null },
@@ -17,7 +16,7 @@ const romaneio = {
   ],
 };
 
-function danfe(invoiceNumber: string, pageNumber: number) {
+function danfe(invoiceNumber: string, pageNumber: number, series: string | null = null) {
   const party = {
     street: null,
     neighborhood: null,
@@ -35,7 +34,7 @@ function danfe(invoiceNumber: string, pageNumber: number) {
     invoice_number: invoiceNumber,
     sender: party,
     recipient: { ...party, dn: null },
-    series: null,
+    series,
     issueDate: null,
     accessKey: null,
     icmsCalculationBasis: null,
@@ -91,4 +90,23 @@ test('normalizes common separators without dropping leading zeroes', () => {
 
   assert.equal(matchRomaneioDanfe(rows, [danfe(' 00012 345-67 ', 9)])[0]?.status, 'matched');
   assert.equal(matchRomaneioDanfe(rows, [danfe('12345-67', 9)])[0]?.status, 'unmatched');
+});
+
+test('matches a Romaneio number-series pair to separate DANFE number and series fields', () => {
+  assert.deepEqual(
+    matchRomaneioDanfe(
+      [{ ...romaneio, data: [{ ...romaneio.data[0]!, fiscalNote: '000123-45' }] }],
+      [danfe('000123', 3, '45')],
+    ),
+    [
+      {
+        status: 'matched',
+        fiscalNote: '000123-45',
+        romaneioPageNumber: 2,
+        romaneioRowNumber: 1,
+        danfePageNumber: 3,
+        candidatePageNumbers: [],
+      },
+    ],
+  );
 });

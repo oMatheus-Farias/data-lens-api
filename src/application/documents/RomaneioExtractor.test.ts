@@ -22,7 +22,6 @@ test('maps a Romaneio page to the public shape and preserves every printed value
     shipname: 'BR-PIQ1623',
     shipment: '0006500117770',
     dn: { number: '1147' },
-    total: { realWt: '59,920', cubicWt: '215,050', Vol: '0,791' },
     data: [
       { fiscalNote: '000864375-69', realWt: '47,420', cubicWt: '199,800', Vol: '0,666' },
       { fiscalNote: '000864376-70', realWt: '12,500', cubicWt: '15,250', Vol: '0,125' },
@@ -37,7 +36,6 @@ test('returns null fields for a recognized Romaneio with missing OCR values', ()
     shipname: null,
     shipment: null,
     dn: { number: null },
-    total: { realWt: null, cubicWt: null, Vol: null },
     data: [],
   });
 });
@@ -52,4 +50,56 @@ test('keeps a Fiscal Note row when OCR omits trailing measurements', () => {
   assert.deepEqual(extractRomaneio(ocrText, 2)?.data, [
     { fiscalNote: '000864375-69', realWt: '47,420', cubicWt: null, Vol: null },
   ]);
+});
+
+test('extracts a column-oriented Vision table and a DN split from its headings', () => {
+  const ocrText = [
+    'New Shipping List',
+    'Closure date: 05.09.2026 10:25:10',
+    'Shipname TEST-SHIP',
+    'QTD',
+    'Country BR',
+    'Shipment 6500000000',
+    'Operator OP1 Payment Option F_FR_2_01 Fracionado',
+    'Carrier 3300000000 TEST CARRIER',
+    'Packaging',
+    'Cardboard Box 1',
+    'TOTAL',
+    '3',
+    '1',
+    'DN',
+    '1147',
+    'Box Number',
+    '55510000000',
+    'City',
+    'SAO PAULO',
+    'Box Code',
+    '1165/M',
+    '-412-082-57',
+    'Fiscal Note',
+    '000000123-45',
+    'Total',
+    'State',
+    'SP',
+    'Route',
+    'CDP123',
+    'Real Wt (Kg)',
+    '10,000',
+    '10,000',
+    '20,00',
+    'Cubic Wt (Kg)',
+    '20,000',
+    'Vol (m³).',
+    '0,100',
+    '0,100',
+  ].join('\n');
+
+  assert.deepEqual(extractRomaneio(ocrText, 1), {
+    type: 'shippingList',
+    pageNumber: 1,
+    shipname: 'TEST-SHIP',
+    shipment: '6500000000',
+    dn: { number: '1147' },
+    data: [{ fiscalNote: '000000123-45', realWt: '10,000', cubicWt: '20,000', Vol: '0,100' }],
+  });
 });

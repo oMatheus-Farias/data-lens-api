@@ -168,7 +168,7 @@ function extractBoxes(text: string): IShippingManifestBox[] {
   )?.[1];
 
   if (!section) {
-    return [];
+    return extractColumnOrientedBoxes(text);
   }
 
   const rows: IShippingManifestBox[] = [];
@@ -190,7 +190,79 @@ function extractBoxes(text: string): IShippingManifestBox[] {
     }
   }
 
-  return rows;
+  return rows.length > 0 ? rows : extractColumnOrientedBoxes(text);
+}
+
+const COLUMN_HEADERS = [
+  /^BOX\s+NUMBER\b/i,
+  /^CITY\b/i,
+  /^BOX\s+CODE\b/i,
+  /^FISCAL\s+NOTE\b/i,
+  /^TOTAL\b/i,
+  /^STATE\b/i,
+  /^ROUTE\b/i,
+  /^REAL\s+WT\b/i,
+  /^CUBIC\s+WT\b/i,
+  /^VOL\s*\(/i,
+  /^PAGE\s+NUMBER\b/i,
+];
+
+function columnValues(text: string, header: RegExp): string[] {
+  const lines = text.split('\n');
+  const start = lines.findIndex((line) => header.test(line.trim()));
+
+  if (start < 0) {
+    return [];
+  }
+
+  const inlineValue = lines[start]
+    ?.trim()
+    .replace(header, '')
+    .replace(/^\s*[:.]?\s*/, '');
+  const values = inlineValue ? [inlineValue] : [];
+  for (let index = start + 1; index < lines.length; index += 1) {
+    const line = lines[index]?.trim() ?? '';
+    if (COLUMN_HEADERS.some((candidate) => candidate.test(line))) {
+      break;
+    }
+    if (line) {
+      values.push(line);
+    }
+  }
+
+  return values;
+}
+
+function extractColumnOrientedBoxes(text: string): IShippingManifestBox[] {
+  if (!/^\s*BOX\s+NUMBER\b/im.test(text)) {
+    return [];
+  }
+
+  const fiscalNotes = columnValues(text, /^FISCAL\s+NOTE\b/i).filter((value) =>
+    /^\d+(?:[./-]\d+)*$/.test(value),
+  );
+  if (fiscalNotes.length === 0) {
+    return [];
+  }
+
+  const references = columnValues(text, /^BOX\s+NUMBER\b/i);
+  const codes = columnValues(text, /^BOX\s+CODE\b/i);
+  const weights = columnValues(text, /^REAL\s+WT\s*\(\s*KG\s*\)/i).filter((value) =>
+    /^[\d.,]+$/.test(value),
+  );
+  const cubicWeights = columnValues(text, /^CUBIC\s+WT\s*\(\s*KG\s*\)/i).filter((value) =>
+    /^[\d.,]+$/.test(value),
+  );
+  const volumes = columnValues(text, /^VOL\s*\(/i).filter((value) => /^[\d.,]+$/.test(value));
+
+  return fiscalNotes.map((invoiceNumber, index) => ({
+    reference: references[index] ?? null,
+    code: codes[index] ?? null,
+    invoiceNumber,
+    weight: weights[index] ?? null,
+    cubicWeight: cubicWeights[index] ?? null,
+    volume: volumes[index] ?? null,
+  }));
 }
 
 function extractEnglishRoute(

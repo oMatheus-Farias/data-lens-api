@@ -27,7 +27,15 @@ export function matchRomaneioDanfe(
     romaneio.data.map((row, index) => {
       const fiscalNote = normalizedIdentifier(row.fiscalNote);
       const candidates = fiscalNote
-        ? danfes.filter((danfe) => normalizedIdentifier(danfe.invoice_number) === fiscalNote)
+        ? danfes.filter((danfe) => {
+            const invoiceNumber = normalizedIdentifier(danfe.invoice_number);
+            const invoiceAndSeries =
+              invoiceNumber && danfe.series
+                ? normalizedIdentifier(`${danfe.invoice_number ?? ''}${danfe.series}`)
+                : null;
+
+            return invoiceNumber === fiscalNote || invoiceAndSeries === fiscalNote;
+          })
         : [];
       const candidatePageNumbers = candidates.map((danfe) => danfe.pageNumber);
       const base = {

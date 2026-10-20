@@ -112,6 +112,36 @@ test('renders a PDF, batches pages by 16, and returns OCR text in page order', a
   }
 });
 
+test('logs recognized text per page only when OCR diagnostics are enabled', async () => {
+  const workDirectory = await mkdtemp(join(tmpdir(), 'data-lens-vision-test-'));
+  const pdfPath = join(workDirectory, 'upload.pdf');
+  await writeFile(pdfPath, '%PDF-1.4');
+  const loggedPages: { pageNumber: number; ocrText: string }[] = [];
+  const pageImage = join(workDirectory, 'upload-page-1.png');
+  const processor = new CloudVisionDocumentProcessor(
+    'test-secret',
+    async () => {
+      await writeFile(pageImage, 'page');
+      return [pageImage];
+    },
+    async () =>
+      new Response(
+        JSON.stringify({ responses: [{ fullTextAnnotation: { text: 'texto reconhecido' } }] }),
+        { status: 200 },
+      ),
+    true,
+    (page) => loggedPages.push(page),
+  );
+
+  try {
+    await processor.process(pdfPath, workDirectory);
+
+    assert.deepEqual(loggedPages, [{ pageNumber: 1, ocrText: 'texto reconhecido' }]);
+  } finally {
+    await rm(workDirectory, { recursive: true, force: true });
+  }
+});
+
 test('does not expose the API key or provider response when Cloud Vision fails', async () => {
   const workDirectory = await mkdtemp(join(tmpdir(), 'data-lens-vision-test-'));
   const pdfPath = join(workDirectory, 'upload.pdf');

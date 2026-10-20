@@ -92,7 +92,12 @@ export function registerExtractShipmentsRoute(
   const maxFileSizeBytes = options.maxFileSizeBytes ?? MAX_FILE_SIZE_BYTES;
   const documentProcessor = options.processDocument
     ? { process: options.processDocument }
-    : new CloudVisionDocumentProcessor(env.GOOGLE_API_CLOUD_VISION_SECRET);
+    : new CloudVisionDocumentProcessor(
+        env.GOOGLE_API_CLOUD_VISION_SECRET,
+        undefined,
+        undefined,
+        env.GOOGLE_VISION_DEBUG_OCR,
+      );
   const cleanupTemporaryDirectory =
     options.cleanupTemporaryDirectory ??
     ((directory: string) => rm(directory, { recursive: true, force: true }));
