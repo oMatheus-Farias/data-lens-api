@@ -1,30 +1,43 @@
-import { execFile } from 'node:child_process';
-import { readdir, readFile, rm } from 'node:fs/promises';
-import { basename, extname, join } from 'node:path';
+import { readdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { createRequire } from 'node:module';
+import { basename, dirname, extname, join, sep } from 'node:path';
+
+import { pdf } from 'pdf-to-img';
 
 export interface IOcrPage {
   pageNumber: number;
   ocrText: string;
 }
 
-type IRenderPdf = (args: string[]) => Promise<void>;
+type IRenderPdf = (pdfPath: string, workDirectory: string) => Promise<string[]>;
 type IRequest = (url: string, init: RequestInit) => Promise<Response>;
 
-function renderPdf(args: string[]): Promise<void> {
-  return new Promise((resolve, reject) => {
-    execFile('pdftoppm', args, { maxBuffer: 5 * 1024 * 1024, windowsHide: true }, (error) => {
-      if (error) {
-        reject(error);
-        return;
-      }
+const require = createRequire(import.meta.url);
+const pdfToImgRequire = createRequire(require.resolve('pdf-to-img'));
+const pdfjsDirectory = dirname(pdfToImgRequire.resolve('pdfjs-dist/package.json'));
+const PDFJS_WASM_DIRECTORY = `${join(pdfjsDirectory, 'wasm')}${sep}`;
 
-      resolve();
-    });
+async function renderPdf(pdfPath: string, workDirectory: string): Promise<string[]> {
+  const imageDocument = await pdf(pdfPath, {
+    scale: 300 / 72,
+    docInitParams: { wasmUrl: PDFJS_WASM_DIRECTORY },
   });
-}
+  const imagePrefix = join(workDirectory, `${basename(pdfPath, extname(pdfPath))}-page`);
+  const imagePaths: string[] = [];
 
-function pageNumberFromFile(fileName: string): number {
-  return Number(fileName.match(/-(\d+)\.png$/)?.[1] ?? 0);
+  try {
+    let pageNumber = 0;
+    for await (const image of imageDocument) {
+      pageNumber += 1;
+      const imagePath = `${imagePrefix}-${pageNumber}.png`;
+      await writeFile(imagePath, image);
+      imagePaths.push(imagePath);
+    }
+
+    return imagePaths;
+  } finally {
+    await imageDocument.destroy();
+  }
 }
 
 export class CloudVisionDocumentProcessor {
@@ -39,18 +52,11 @@ export class CloudVisionDocumentProcessor {
       throw new Error('Cloud Vision OCR is not configured');
     }
 
-    const imagePrefix = join(workDirectory, `${basename(pdfPath, extname(pdfPath))}-page`);
+    const imagePrefix = `${basename(pdfPath, extname(pdfPath))}-page-`;
     const imagePaths: string[] = [];
 
     try {
-      await this.runRenderer(['-png', '-r', '300', pdfPath, imagePrefix]);
-      const imageFiles = (await readdir(workDirectory))
-        .filter(
-          (fileName) =>
-            fileName.startsWith(`${basename(imagePrefix)}-`) && fileName.endsWith('.png'),
-        )
-        .sort((left, right) => pageNumberFromFile(left) - pageNumberFromFile(right));
-      imagePaths.push(...imageFiles.map((fileName) => join(workDirectory, fileName)));
+      imagePaths.push(...(await this.runRenderer(pdfPath, workDirectory)));
 
       const pages: IOcrPage[] = [];
       for (let offset = 0; offset < imagePaths.length; offset += 16) {
@@ -111,9 +117,9 @@ export class CloudVisionDocumentProcessor {
       return pages;
     } finally {
       await Promise.all(imagePaths.map((imagePath) => rm(imagePath, { force: true })));
-      // pdftoppm can leave partial images behind if rendering fails.
+      // A failed render can leave some page images behind before returning its paths.
       const partialImages = (await readdir(workDirectory)).filter(
-        (fileName) => fileName.startsWith(`${basename(imagePrefix)}-`) && fileName.endsWith('.png'),
+        (fileName) => fileName.startsWith(imagePrefix) && fileName.endsWith('.png'),
       );
       await Promise.all(
         partialImages.map((fileName) => rm(join(workDirectory, fileName), { force: true })),

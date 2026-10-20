@@ -4,7 +4,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "dev": "tsx watch src/main/server.ts",
+    "dev": "node --env-file-if-exists=.env --import=tsx --watch src/main/server.ts",
     "typecheck": "tsc --noEmit",
     "test": "node --import=tsx --test",
     "prepare": "husky"
@@ -40,6 +40,7 @@
     "@fastify/cors": "^11.3.1",
     "@fastify/multipart": "^10.1.4",
     "fastify": "^5.12.7",
+    "pdf-to-img": "^7.0.1",
     "zod": "^4.6.7"
   }
 }
