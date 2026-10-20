@@ -229,9 +229,15 @@ function valuesForFields(text: string): IScalarFields {
       /^\s*DATA\s*[-:]\s*([\d./-]+)/im,
     ]),
     'remessa.pais': findValue(text, [/\bCOUNTRY\s*[-:]?\s*([A-Z]{2,3})\b/i]),
-    'remessa.nomeNavio': findValue(text, [/\bSHIPNAME\s*[-:]?\s*([\w-]+)/i]),
-    'remessa.operador': findValue(text, [/\bOPERATOR\s*[-:]?\s*([\w-]+)/i]),
-    'remessa.formaPagamento': findValue(text, [/\bPAYMENT\s+OPTION\s*[-:]?\s*([\w-]+)/i]),
+    'remessa.nomeNavio': findValue(text, [
+      /\bSHIPNAME\s*[-:]?\s*(.+?)(?=\s+\b(?:SHIPMENT|OPERATOR|PAYMENT\s+OPTION|CARRIER)\b|[|\n]|$)/i,
+    ]),
+    'remessa.operador': findValue(text, [
+      /\bOPERATOR\s*[-:]?\s*(.+?)(?=\s+\b(?:PAYMENT\s+OPTION|CARRIER|SHIPMENT)\b|[|\n]|$)/i,
+    ]),
+    'remessa.formaPagamento': findValue(text, [
+      /\bPAYMENT\s+OPTION\s*[-:]?\s*(.+?)(?=\s+\b(?:CARRIER|SHIPMENT|OPERATOR)\b|[|\n]|$)/i,
+    ]),
     'transportadora.razaoSocial': carrierParts?.[2] ?? carrier,
     'transportadora.identificador': carrierParts?.[1] ?? null,
     'transportadora.cnpjCpf': findValue(text, [
@@ -332,7 +338,8 @@ function createFields(values: IScalarFields, boxes: IRomaneioBox[]): IRomaneioFi
 
 export function extractRomaneio(ocrText: string): IRomaneioExtraction | null {
   const text = normalizedText(ocrText);
-  const isPortugueseRomaneio = /\bROMANEIO\b/i.test(text);
+  const firstNonemptyLine = text.split('\n').find((line) => line.trim()) ?? '';
+  const isPortugueseRomaneio = /^\s*ROMANEIO\b/i.test(firstNonemptyLine);
   const isEnglishShippingList =
     /\bSHIPPING\s+LIST\b/i.test(text) &&
     /\bSHIPMENT\b/i.test(text) &&

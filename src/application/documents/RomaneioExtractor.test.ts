@@ -60,9 +60,9 @@ test('classifies the supplied shipping-list layout and keeps box weight referenc
   const englishRomaneioOcr = [
     'New Shipping List',
     'Closure date: 19/10/2026 08:30',
-    'Country BR Shipname NavioExemplo',
+    'Country BR Shipname Navio de Exemplo',
     'Shipment SHIP-123',
-    'Operator Operador Exemplo Payment Option F-02',
+    'Operator Operador de Exemplo Payment Option F-02 Fracionado',
     'Carrier C-100 Expresso Exemplo',
     'Packaging QTD',
     'Cardboard Box 2',
@@ -80,7 +80,9 @@ test('classifies the supplied shipping-list layout and keeps box weight referenc
   assert.ok(extraction);
   assert.equal(extraction.fields.remessa.numero, 'SHIP-123');
   assert.equal(extraction.fields.remessa.pais, 'BR');
-  assert.equal(extraction.fields.remessa.nomeNavio, 'NavioExemplo');
+  assert.equal(extraction.fields.remessa.nomeNavio, 'Navio de Exemplo');
+  assert.equal(extraction.fields.remessa.operador, 'Operador de Exemplo');
+  assert.equal(extraction.fields.remessa.formaPagamento, 'F-02 Fracionado');
   assert.equal(extraction.fields.transportadora.identificador, 'C-100');
   assert.equal(extraction.fields.transportadora.razaoSocial, 'Expresso Exemplo');
   assert.equal(extraction.fields.rota.origem, 'SAO PAULO');
@@ -115,6 +117,19 @@ test('classifies the supplied shipping-list layout and keeps box weight referenc
 
 test('returns null for OCR text that does not identify a romaneio', () => {
   assert.equal(extractRomaneio('Texto de outro tipo de documento'), null);
+});
+
+test('does not classify a DANFE as a romaneio when its body mentions one', () => {
+  assert.equal(
+    extractRomaneio(
+      [
+        'DANFE',
+        'NOTA FISCAL ELETRÔNICA',
+        'Dados adicionais: documento vinculado ao romaneio.',
+      ].join('\n'),
+    ),
+    null,
+  );
 });
 
 test('represents recognized-layout fields missing from OCR as null with warnings', () => {

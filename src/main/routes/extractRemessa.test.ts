@@ -137,7 +137,7 @@ test('classifies a DANFE and returns organized fields and complete OCR text', as
     'A-1 Produto exemplo 12345678 00 5102 UN 2 10,00 20,00 20,00 3,60 0,00 18,00 0,00',
     'B-2 Produto parcial 87654321 00 5102 UN 1 1,00 1,00',
     'DADOS ADICIONAIS:',
-    'Informação complementar reconhecida',
+    'Informação complementar reconhecida. Documento vinculado ao romaneio.',
   ].join('\n');
   const app = buildApp({ processDocument: async () => danfeOcr });
 
@@ -200,7 +200,10 @@ test('classifies a DANFE and returns organized fields and complete OCR text', as
         aliquotaIpi: null,
       },
     ]);
-    assert.equal(document.fields.informacoesAdicionais, 'Informação complementar reconhecida');
+    assert.equal(
+      document.fields.informacoesAdicionais,
+      'Informação complementar reconhecida. Documento vinculado ao romaneio.',
+    );
     assert.ok(document.warnings.length > 0);
     assert.ok(document.warnings.includes('produtos[1].valorIcms: campo não reconhecido no OCR'));
     assert.equal(JSON.stringify(document).includes('undefined'), false);
