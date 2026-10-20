@@ -80,7 +80,7 @@ function invoiceNumber(text: string): string | null {
   return danfeHeader?.match(/(?<!\d)(\d{6,9})\s*\n?\s*S[ÉE]RIE\b/i)?.[1] ?? null;
 }
 
-function labeledAmount(text: string, label: RegExp): string | null {
+function labeledAmount(text: string, label: RegExp, preferLast = false): string | null {
   const lines = text.split('\n');
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index] ?? '';
@@ -93,6 +93,7 @@ function labeledAmount(text: string, label: RegExp): string | null {
     if (inline) {
       return inline;
     }
+    const amounts: string[] = [];
     for (
       let candidateIndex = index + 1;
       candidateIndex < Math.min(index + 6, lines.length);
@@ -100,12 +101,21 @@ function labeledAmount(text: string, label: RegExp): string | null {
     ) {
       const candidate = lines[candidateIndex]?.trim() ?? '';
       if (/^(?:VALOR|BASE|AL[IÍ]QUOTA|ICMS|IPI|FRETE|SEGURO)\b/i.test(candidate)) {
+        if (amounts.length > 0) {
+          break;
+        }
         continue;
       }
       const amount = candidate.match(/(?<!\d)\d[\d.,]*(?!\d)/)?.[0];
       if (amount) {
-        return amount;
+        amounts.push(amount);
+      } else if (amounts.length > 0) {
+        break;
       }
+    }
+
+    if (amounts.length > 0) {
+      return preferLast ? (amounts.at(-1) ?? null) : (amounts[0] ?? null);
     }
   }
   return null;
@@ -266,28 +276,32 @@ function grossWeight(text: string): string | null {
       continue;
     }
 
-    let weight = clean(match[1]);
-    let valueIndex = index;
-    while (!weight && valueIndex < lines.length - 1) {
-      valueIndex += 1;
+    const inlineWeight = clean(match[1])?.match(/[\d.,]+\s*KG\b/i)?.[0];
+    if (inlineWeight) {
+      return inlineWeight.replace(/\s+/g, ' ');
+    }
+
+    for (
+      let valueIndex = index + 1;
+      valueIndex < Math.min(index + 20, lines.length);
+      valueIndex += 1
+    ) {
       const candidate = lines[valueIndex]?.trim() ?? '';
       if (/^PESO\s+L[IÍ]QUIDO\b/i.test(candidate)) {
         continue;
       }
       if (/^[\d.,]+$/.test(candidate)) {
-        weight = candidate;
+        let unitIndex = valueIndex + 1;
+        while (unitIndex < Math.min(valueIndex + 4, lines.length) && !lines[unitIndex]?.trim()) {
+          unitIndex += 1;
+        }
+        if (/^KG\b/i.test(lines[unitIndex]?.trim() ?? '')) {
+          return `${candidate} ${lines[unitIndex]?.trim()}`;
+        }
+      }
+      if (/^TRANSPORTADOR\b|^DADOS\s+DO\s+PRODUTO\b/i.test(candidate)) {
         break;
       }
-      if (PARTY_LABEL_LINE.test(candidate)) {
-        return null;
-      }
-    }
-
-    if (weight) {
-      const unit = /^\s*[KG]{1,2}\s*$/i.test(lines[valueIndex + 1] ?? '')
-        ? ` ${lines[valueIndex + 1]?.trim()}`
-        : '';
-      return `${weight}${unit}`;
     }
   }
 
@@ -332,12 +346,10 @@ function footerTableAmounts(text: string): {
   totalProductsAmount: string | null;
   totalInvoiceAmount: string | null;
 } {
-  const tableHeader =
-    /VALOR\s+UNIT[ÁA]RIO[\s\S]{0,180}?(?:B\.?\s*(?:CALC|C[AÁ]LC)\s+ICMS)[\s\S]{0,50}?(?:BAGE|BASE)[\s\S]{0,40}?CALC\s+ICM[SE][\s\S]{0,40}?VALOR\s+ICMS[\s\S]{0,30}?VALOR\s+IP/i.exec(
-      text,
-    );
+  const tableHeaders = [...text.matchAll(/VALOR\s+UNIT[ÁA]RIO/gi)];
+  const tableHeader = tableHeaders.at(-1);
 
-  if (!tableHeader) {
+  if (!tableHeader || tableHeader.index === undefined) {
     return {
       icmsCalculationBasis: null,
       icmsAmount: null,
@@ -346,14 +358,16 @@ function footerTableAmounts(text: string): {
     };
   }
 
-  const rowText = text.slice(tableHeader.index + tableHeader[0].length);
+  const rowText =
+    text.slice(tableHeader.index + tableHeader[0].length).split(/\bNCM\s*\/\s*SH\b/i)[0] ?? '';
   const amounts = rowText.match(/(?<!\d)\d[\d.,]*(?!\d)/g) ?? [];
+  const unitPriceIndex = amounts.findIndex((amount) => /[.,]\d{4}$/.test(amount));
   const footerTotals = /\bUF\s+[\d.,]+\s+([\d.,]+)\s+[\d.,]+\s+KG\b/i.exec(text);
 
   return {
-    totalProductsAmount: amounts[2] ?? null,
-    icmsCalculationBasis: amounts[3] ?? null,
-    icmsAmount: amounts[6] ?? null,
+    totalProductsAmount: unitPriceIndex >= 0 ? (amounts[unitPriceIndex + 1] ?? null) : null,
+    icmsCalculationBasis: unitPriceIndex >= 0 ? (amounts[unitPriceIndex + 2] ?? null) : null,
+    icmsAmount: unitPriceIndex >= 0 ? (amounts[unitPriceIndex + 5] ?? null) : null,
     totalInvoiceAmount: footerTotals?.[1] ?? null,
   };
 }
@@ -362,6 +376,7 @@ export function extractDanfe(
   ocrText: string,
   pageNumber: number,
   ocrWords?: IOcrWord[],
+  debugLayout = false,
 ): IDanfeExtraction | null {
   const text = ocrText.replace(/\r/g, '');
 
@@ -405,6 +420,7 @@ export function extractDanfe(
     ? extractSpatialOcrValues(ocrWords, RECIPIENT_SPATIAL_LABELS, {
         regionStart: /DESTINAT[AÁ]RIO/i,
         regionEnd: /FATURA|C[ÁA]LCULO\s+DO\s+IMPOSTO/i,
+        ...(debugLayout ? { debug: { pageNumber, section: 'danfe-recipient' } } : {}),
       })
     : {};
   const spatialTotals = ocrWords
@@ -412,6 +428,8 @@ export function extractDanfe(
         regionStart: /C[ÁA]LCULO\s+DO\s+IMPOSTO/i,
         regionEnd: /TRANSPORTADOR/i,
         maxRegionHeight: 0.24,
+        valuePattern: /^\d[\d.,]*$/,
+        ...(debugLayout ? { debug: { pageNumber, section: 'danfe-totals' } } : {}),
       })
     : {};
   const sender = party(senderText);
@@ -427,18 +445,21 @@ export function extractDanfe(
   const spatialPartyValues = {
     street: spatialFieldValue(
       spatialRecipient.street?.text,
-      /^(?!.*\b(?:MUNIC[IÍ]PIO|BAIRRO|COMPLEMENTO|CNPJ|INSCRI[CÇ][ÃA]O|TRANSPORTADOR|VALOR|C[ÁA]LCULO)\b)[\p{L}\d][\p{L}\d .,'/-]{0,99}$/iu,
+      /^(?!\d)(?!.*\b\d{5}-?\d{3}\b)(?!.*\b(?:MUNIC[IÍ]PIO|BAIRRO|COMPLEMENTO|CNPJ|INSCRI[CÇ][ÃA]O|TRANSPORTADOR|VALOR|C[ÁA]LCULO)\b)[\p{L}\d][\p{L}\d .,'/-]{0,99}$/iu,
     ),
     neighborhood: spatialFieldValue(
       spatialRecipient.neighborhood?.text,
-      /^[\p{L}][\p{L}\d .'-]+$/u,
+      /^[\p{L}][\p{L} .'-]{1,49}$/u,
     ),
     postalCode: spatialFieldValue(spatialRecipient.postalCode?.text, /^\d{5}-?\d{3}$/),
     number: spatialFieldValue(spatialRecipient.number?.text, /^\d+[A-Z]?(?:[-/]\w+)?$/i),
-    complement: spatialFieldValue(spatialRecipient.complement?.text, /^[\p{L}][\p{L}\d .,'/-]*$/u),
+    complement: spatialFieldValue(
+      spatialRecipient.complement?.text,
+      /^(?!.*\b(?:CEP|DATA|ENTRADA|SA[IÍ]DA|MUNIC[IÍ]PIO|FONE|FAX|N[ÚU]MERO|BAIRRO|INSCRI[CÇ][ÃA]O)\b)[\p{L}][\p{L}\d .,'/-]*$/iu,
+    ),
     municipality: spatialFieldValue(
       spatialRecipient.municipality?.text,
-      /^[\p{L}][\p{L}\d .'-]+$/u,
+      /^(?!.*\d{5,})[\p{L}][\p{L}\d .'-]+$/u,
     ),
     phone_fax: spatialFieldValue(spatialRecipient.phone_fax?.text, /^[\d() .+-]+$/),
     dn: spatialFieldValue(spatialRecipient.dn?.text, /^[\d./-]+$/),
@@ -449,9 +470,9 @@ export function extractDanfe(
       fieldValue &&
       (spatialValue?.confidence === null || (spatialValue?.confidence ?? 0) >= 0.5)
     ) {
-      if (field === 'dn') {
+      if (field === 'dn' && recipient.dn === null) {
         recipient.dn = fieldValue;
-      } else if (field in recipient) {
+      } else if (field in recipient && recipient[field as keyof IDanfeParty] === null) {
         recipient[field as keyof IDanfeParty] = fieldValue;
       }
     }
@@ -477,21 +498,21 @@ export function extractDanfe(
     issueDate: value(text, /DATA\s+DE\s+EMISS[AÃ]O\s*[:.]?\s*([\d./-]+)/i),
     accessKey: key?.replace(/\s+/g, '') ?? null,
     icmsCalculationBasis:
-      spatialAmount(spatialTotals.icmsCalculationBasis) ??
       tableAmounts.icmsCalculationBasis ??
+      spatialAmount(spatialTotals.icmsCalculationBasis) ??
       value(totalsText, /BASE\s+DE\s+C[AÁ]LCULO\s+(?:DO\s+)?ICMS(?!\s+ST)\s*[:.]?\s*([\d.,]+)/i),
     icmsAmount:
-      spatialAmount(spatialTotals.icmsAmount) ??
       tableAmounts.icmsAmount ??
+      spatialAmount(spatialTotals.icmsAmount) ??
       labeledAmount(text, /VALOR\s+(?:DO\s+)?IC(?:M|H|MH)S(?!\s+ST)\b/i),
     totalProducts_amount:
-      spatialAmount(spatialTotals.totalProductsAmount) ??
       tableAmounts.totalProductsAmount ??
+      spatialAmount(spatialTotals.totalProductsAmount) ??
       value(totalsText, /VALOR\s+(?:TOTAL\s+)?DOS\s+PRODUTOS\s*[:.]?\s*([\d.,]+)/i),
     totalInvoiceAmount:
-      spatialAmount(spatialTotals.totalInvoiceAmount) ??
       tableAmounts.totalInvoiceAmount ??
-      labeledAmount(text, /VALOR\s+TOTAL\s+DA\s+(?:NOTA|NF-?E?)\b/i),
+      spatialAmount(spatialTotals.totalInvoiceAmount) ??
+      labeledAmount(text, /VALOR\s+TOTAL\s+DA\s+(?:NOTA|NF-?E?)\b/i, true),
     grossWeight: grossWeight(weightText),
   };
 }

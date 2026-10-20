@@ -93,7 +93,7 @@ VALOR DO ICHS BASE DE CÁLCULO DO ICMS SUBSTITUIÇÃO VALOR DO ICHS SUBSTITUIÇ�
 VALOR TOTAL DOS PRODUTOS 123.45
 VALOR TOTAL DA NOTA 0.00
 VALOR UNITÁRIO VALOR TOTAL B. CALC ICMS BAGE CALC ICME SUBST. VALOR ICMS VALOR IP
-30 123.4567 1.234.56 1.234.56 2.345.67 ICMS SUBST. 123.45 234.56
+7 123.4567 1.234.56 1.234.56 2.345.67 ICMS SUBST. 123.45 234.56
 UF 1.234.56 1.358.01 21.321 KG`;
   const result = extractDanfe(ocrText, 1);
 
@@ -101,6 +101,30 @@ UF 1.234.56 1.358.01 21.321 KG`;
   assert.equal(result?.icmsAmount, '234.56');
   assert.equal(result?.totalProducts_amount, '1.234.56');
   assert.equal(result?.totalInvoiceAmount, '1.358.01');
+});
+
+test('maps footer tax cells after a four-decimal unit price even when quantity is absent', () => {
+  const ocrText = `DANFE NOTA FISCAL ELETRÔNICA
+VALOR UNITÁRIO
+VALOR TOTAL
+B. CALC ICMS
+987.6543
+7.901,23
+7.901.23
+BASE CALC ICMS SUBST.
+9.876,54
+VALOR ICMS SUBST.
+987,65
+VALOR ICMS
+VALOR IPI
+ALIQUOTA
+1.422,22
+88,88`;
+  const result = extractDanfe(ocrText, 4);
+
+  assert.equal(result?.totalProducts_amount, '7.901,23');
+  assert.equal(result?.icmsCalculationBasis, '7.901.23');
+  assert.equal(result?.icmsAmount, '1.422,22');
 });
 
 test('extracts party numbers when OCR omits the label colon', () => {
@@ -271,7 +295,7 @@ test('finds the invoice total even when OCR places it after the freight section'
     '168,06',
   ].join('\n');
 
-  assert.equal(extractDanfe(text, 6)?.totalInvoiceAmount, '149,25');
+  assert.equal(extractDanfe(text, 6)?.totalInvoiceAmount, '168,06');
 });
 
 test('does not let a spatial row of unrelated labels replace the recognized recipient street', () => {
@@ -294,4 +318,5 @@ test('does not let a spatial row of unrelated labels replace the recognized reci
   const result = extractDanfe(text, 2, words);
 
   assert.equal(result?.recipient.street, 'Avenida Ficticia');
+  assert.equal(result?.recipient.municipality, 'Cidade Beta - XX');
 });

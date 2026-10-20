@@ -3,12 +3,17 @@ import type { IOcrWord } from './OcrPage';
 interface ISpatialValue {
   text: string;
   confidence: number | null;
+  labelText: string;
+  labelBox: IOcrWord['box'];
+  valueBox: IOcrWord['box'];
 }
 
 interface ISpatialExtractionOptions {
   regionStart: RegExp;
   regionEnd: RegExp;
   maxRegionHeight?: number;
+  valuePattern?: RegExp;
+  debug?: { pageNumber: number; section: string };
 }
 
 interface ILineWord extends IOcrWord {
@@ -36,25 +41,32 @@ interface ILabelMatch {
 const NON_VALUE_LINE =
   /^(?:STATUS\s+LEGAL|AUTORIZADO|DANFE|DOCUMENTO\s+AUXILIAR|DESTINAT[AÁ]RIO|EMITENTE|FATURA|C[ÁA]LCULO\s+DO\s+IMPOSTO|INSCRI[CÇ][ÃA]O\s+ESTADUAL|UF)\b/i;
 
-function verticalOverlap(first: IOcrWord, second: IOcrWord): number {
-  const overlap =
-    Math.min(first.box.y + first.box.height, second.box.y + second.box.height) -
-    Math.max(first.box.y, second.box.y);
-  const smallerHeight = Math.min(first.box.height, second.box.height);
-
-  return smallerHeight > 0 ? overlap / smallerHeight : 0;
+function median(values: number[]): number {
+  const sorted = [...values].sort((first, second) => first - second);
+  return sorted[Math.floor(sorted.length / 2)] ?? 0;
 }
 
 function makeLines(words: IOcrWord[]): IOcrLine[] {
   const sorted = [...words]
-    .filter((word) => word.text.trim() && word.box.width >= 0 && word.box.height >= 0)
-    .sort((first, second) => first.box.y - second.box.y || first.box.x - second.box.x);
+    .filter((word) => word.text.trim() && word.box.width >= 0 && word.box.height > 0)
+    .sort(
+      (first, second) =>
+        first.box.y + first.box.height / 2 - (second.box.y + second.box.height / 2) ||
+        first.box.x - second.box.x,
+    );
   const lines: IOcrWord[][] = [];
 
   for (const word of sorted) {
-    const matchingLine = lines.find((line) =>
-      line.some((lineWord) => verticalOverlap(lineWord, word) >= 0.45),
-    );
+    const wordCenter = word.box.y + word.box.height / 2;
+    const matchingLine = lines
+      .map((line) => {
+        const lineCenter = median(line.map((lineWord) => lineWord.box.y + lineWord.box.height / 2));
+        const lineHeight = median(line.map((lineWord) => lineWord.box.height));
+        const tolerance = Math.max(0.003, Math.min(lineHeight, word.box.height) * 0.7);
+        return { line, distance: Math.abs(lineCenter - wordCenter), tolerance };
+      })
+      .filter((candidate) => candidate.distance <= candidate.tolerance)
+      .sort((first, second) => first.distance - second.distance)[0]?.line;
     if (matchingLine) {
       matchingLine.push(word);
     } else {
@@ -121,20 +133,37 @@ function recognizedLabels(lines: IOcrLine[], patterns: Record<string, RegExp>): 
 }
 
 function cellBounds(label: ILabelMatch, peers: ILabelMatch[]): { left: number; right: number } {
+  const labelY = (label.line.top + label.line.bottom) / 2;
   const rowLabels = peers
-    .filter((peer) => peer.line === label.line && peer !== label)
+    .filter(
+      (peer) =>
+        peer !== label && Math.abs((peer.line.top + peer.line.bottom) / 2 - labelY) <= 0.012,
+    )
     .sort((first, second) => first.center - second.center);
-  const leftNeighbor = rowLabels.filter((peer) => peer.center < label.center).at(-1);
   const rightNeighbor = rowLabels.find((peer) => peer.center > label.center);
 
   return {
-    left: leftNeighbor ? (leftNeighbor.center + label.center) / 2 : 0,
-    right: rightNeighbor ? (rightNeighbor.center + label.center) / 2 : 1,
+    left: label.left,
+    right: rightNeighbor?.left ?? 1,
   };
 }
 
-function lineValue(words: ILineWord[]): ISpatialValue | null {
-  const valueWords = words.filter((word) => !NON_VALUE_LINE.test(word.text));
+function boxFor(words: IOcrWord[]): IOcrWord['box'] {
+  const x = Math.min(...words.map((word) => word.box.x));
+  const y = Math.min(...words.map((word) => word.box.y));
+  const right = Math.max(...words.map((word) => word.box.x + word.box.width));
+  const bottom = Math.max(...words.map((word) => word.box.y + word.box.height));
+  return { x, y, width: right - x, height: bottom - y };
+}
+
+function lineValue(
+  words: ILineWord[],
+  label: ILabelMatch,
+  valuePattern?: RegExp,
+): ISpatialValue | null {
+  const valueWords = words.filter(
+    (word) => !NON_VALUE_LINE.test(word.text) && (!valuePattern || valuePattern.test(word.text)),
+  );
   const text = valueWords
     .map((word) => word.text)
     .join(' ')
@@ -154,7 +183,27 @@ function lineValue(words: ILineWord[]): ISpatialValue | null {
       confidences.length > 0
         ? confidences.reduce((total, confidence) => total + confidence, 0) / confidences.length
         : null,
+    labelText: label.line.text.slice(label.start, label.end),
+    labelBox: boxFor(matchWords(label.line, label.start, label.end)),
+    valueBox: boxFor(valueWords),
   };
+}
+
+function logSpatialColumns(
+  debug: ISpatialExtractionOptions['debug'],
+  values: Record<string, ISpatialValue>,
+): void {
+  if (!debug) {
+    return;
+  }
+
+  process.stdout.write(
+    `[cloud-vision-columns] ${JSON.stringify({
+      pageNumber: debug.pageNumber,
+      section: debug.section,
+      fields: values,
+    })}\n`,
+  );
 }
 
 export function extractSpatialOcrValues(
@@ -187,18 +236,26 @@ export function extractSpatialOcrValues(
         word.box.x + word.box.width > label.right &&
         word.box.x < bounds.right,
     );
-    const inlineValue = lineValue(inlineWords);
+    const inlineValue = lineValue(inlineWords, label, options.valuePattern);
     if (inlineValue) {
       values[label.key] = inlineValue;
       continue;
     }
 
     const nextLines = lines
-      .filter((line) => line.top >= label.line.bottom && line.top <= regionBottom)
+      .filter(
+        (line) =>
+          line.top >= label.line.bottom &&
+          line.top < regionBottom &&
+          !options.regionEnd.test(line.text),
+      )
       .sort((first, second) => first.top - second.top);
 
     for (const line of nextLines) {
-      if (recognizedLabels([line], patterns).length > 0 || NON_VALUE_LINE.test(line.text)) {
+      if (
+        (!options.valuePattern && recognizedLabels([line], patterns).length > 0) ||
+        NON_VALUE_LINE.test(line.text)
+      ) {
         continue;
       }
 
@@ -206,7 +263,7 @@ export function extractSpatialOcrValues(
         const center = word.box.x + word.box.width / 2;
         return center >= bounds.left && center <= bounds.right;
       });
-      const spatialValue = lineValue(candidates);
+      const spatialValue = lineValue(candidates, label, options.valuePattern);
       if (spatialValue) {
         values[label.key] = spatialValue;
         break;
@@ -214,5 +271,6 @@ export function extractSpatialOcrValues(
     }
   }
 
+  logSpatialColumns(options.debug, values);
   return values;
 }

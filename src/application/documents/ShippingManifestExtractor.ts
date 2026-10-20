@@ -440,6 +440,7 @@ function createFields(
 export function extractShippingManifest(
   ocrText: string,
   ocrWords?: IOcrWord[],
+  debugLayout?: { pageNumber: number },
 ): IShippingManifestExtraction | null {
   const text = normalizedText(ocrText);
   const firstNonemptyLine = text.split('\n').find((line) => line.trim()) ?? '';
@@ -464,7 +465,14 @@ export function extractShippingManifest(
         cubicWeight: /\bCUBIC\s+WT\s*\(\s*KG\s*\)/i,
         volume: /\bVOL\s*\(/i,
       },
-      { regionStart: /BOX\s+NUMBER/i, regionEnd: /TOTAL/i },
+      {
+        regionStart: /BOX\s+NUMBER/i,
+        regionEnd: /TOTAL/i,
+        valuePattern: /^\d[\d.,]*$/,
+        ...(debugLayout
+          ? { debug: { pageNumber: debugLayout.pageNumber, section: 'shipping-list-measurements' } }
+          : {}),
+      },
     );
     for (const field of ['weight', 'cubicWeight', 'volume'] as const) {
       const value = spatialMeasurements[field];

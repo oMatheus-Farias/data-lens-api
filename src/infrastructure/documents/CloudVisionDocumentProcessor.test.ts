@@ -165,3 +165,53 @@ test('does not expose the API key or provider response when Cloud Vision fails',
     await rm(workDirectory, { recursive: true, force: true });
   }
 });
+
+test('rotates Vision word boxes when a page contains vertically oriented OCR geometry', async () => {
+  const workDirectory = await mkdtemp(join(tmpdir(), 'data-lens-vision-test-'));
+  const pdfPath = join(workDirectory, 'upload.pdf');
+  await writeFile(pdfPath, '%PDF-1.4');
+  const words = ['BAIRRO', 'FICTICIO', 'MUNICIPIO', 'EXEMPLO'].map((text, index) => ({
+    symbols: [...text].map((symbol) => ({ text: symbol })),
+    boundingBox: {
+      vertices: [
+        { x: 800 + index * 100, y: 100 },
+        { x: 820 + index * 100, y: 100 },
+        { x: 820 + index * 100, y: 300 },
+        { x: 800 + index * 100, y: 300 },
+      ],
+    },
+  }));
+  const processor = new CloudVisionDocumentProcessor(
+    'test-secret',
+    async (_, renderDirectory) => {
+      const pageImage = join(renderDirectory, 'upload-page-1.png');
+      await writeFile(pageImage, 'page');
+      return [pageImage];
+    },
+    async () =>
+      new Response(
+        JSON.stringify({
+          responses: [
+            {
+              fullTextAnnotation: {
+                text: 'BAIRRO FICTICIO MUNICIPIO EXEMPLO',
+                pages: [{ width: 1000, height: 2000, blocks: [{ paragraphs: [{ words }] }] }],
+              },
+            },
+          ],
+        }),
+        { status: 200 },
+      ),
+  );
+
+  try {
+    const [page] = await processor.process(pdfPath, workDirectory);
+    assert.ok(page?.words?.[0]);
+    assert.ok(Math.abs(page.words[0].box.x - 0.05) < 0.0001);
+    assert.ok(Math.abs(page.words[0].box.y - 0.18) < 0.0001);
+    assert.ok(Math.abs(page.words[0].box.width - 0.1) < 0.0001);
+    assert.ok(Math.abs(page.words[0].box.height - 0.02) < 0.0001);
+  } finally {
+    await rm(workDirectory, { recursive: true, force: true });
+  }
+});

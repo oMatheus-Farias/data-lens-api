@@ -28,8 +28,13 @@ export function extractRomaneio(
   ocrText: string,
   pageNumber: number,
   ocrWords?: IOcrWord[],
+  debugLayout = false,
 ): IShippingListExtraction | null {
-  const extraction = extractShippingManifest(ocrText, ocrWords);
+  const extraction = extractShippingManifest(
+    ocrText,
+    ocrWords,
+    debugLayout ? { pageNumber } : undefined,
+  );
 
   if (!extraction) {
     return null;

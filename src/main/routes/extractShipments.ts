@@ -237,8 +237,18 @@ export function registerExtractShipmentsRoute(
           docExtracts.push(
             ...pages.map(
               (page) =>
-                extractRomaneio(page.ocrText, page.pageNumber, page.words) ??
-                extractDanfe(page.ocrText, page.pageNumber, page.words) ?? {
+                extractRomaneio(
+                  page.ocrText,
+                  page.pageNumber,
+                  page.words,
+                  env.GOOGLE_VISION_DEBUG_OCR,
+                ) ??
+                extractDanfe(
+                  page.ocrText,
+                  page.pageNumber,
+                  page.words,
+                  env.GOOGLE_VISION_DEBUG_OCR,
+                ) ?? {
                   type: 'unrecognized',
                   pageNumber: page.pageNumber,
                   ocrText: page.ocrText,

@@ -35,6 +35,21 @@ function ocrWords(pages: IVisionPage[] | undefined): IOcrWord[] {
     const width = page.width ?? 0;
     const height = page.height ?? 0;
 
+    const visionWords = (page.blocks ?? []).flatMap((block) =>
+      (block.paragraphs ?? []).flatMap((paragraph) => paragraph.words ?? []),
+    );
+    const verticalWords = visionWords.filter((word) => {
+      const vertices = word.boundingBox?.vertices ?? [];
+      if (vertices.length < 4) {
+        return false;
+      }
+      const xs = vertices.map((vertex) => vertex.x ?? 0);
+      const ys = vertices.map((vertex) => vertex.y ?? 0);
+      return Math.max(...ys) - Math.min(...ys) > (Math.max(...xs) - Math.min(...xs)) * 1.5;
+    }).length;
+    const horizontalWords = visionWords.length - verticalWords;
+    const rotateCoordinates = verticalWords > horizontalWords;
+
     return (page.blocks ?? []).flatMap((block) =>
       (block.paragraphs ?? []).flatMap((paragraph) =>
         (paragraph.words ?? []).flatMap((word) => {
@@ -57,12 +72,25 @@ function ocrWords(pages: IVisionPage[] | undefined): IOcrWord[] {
           const y = Math.max(0, Math.min(...yCoordinates));
           const right = Math.min(1, Math.max(...xCoordinates));
           const bottom = Math.min(1, Math.max(...yCoordinates));
+          const box = rotateCoordinates
+            ? {
+                x: y,
+                y: 1 - right,
+                width: bottom - y,
+                height: right - x,
+              }
+            : { x, y, width: right - x, height: bottom - y };
 
           return [
             {
               text,
               confidence: typeof word.confidence === 'number' ? word.confidence : null,
-              box: { x, y, width: Math.max(0, right - x), height: Math.max(0, bottom - y) },
+              box: {
+                x: box.x,
+                y: box.y,
+                width: Math.max(0, box.width),
+                height: Math.max(0, box.height),
+              },
             },
           ];
         }),
