@@ -16,6 +16,6 @@ Each response item includes `fileName` and a `status` (`success`, `unrecognized`
 
 ## Local setup
 
-Run `npm run dev` and send a multipart request to `http://localhost:3333/shipments/extract`. Add one or more `files` parts and select each file in the HTTP client. The first Tesseract.js recognition downloads the language data unless `TESSERACT_LANG_PATH` is set.
+Run `pnpm dev` and send a multipart request to `http://localhost:3333/shipments/extract`. Add one or more `files` parts and select each file in the HTTP client. The first Tesseract.js recognition downloads the language data unless `TESSERACT_LANG_PATH` is set.
 
 The API extracts fields with layout-specific parsers. Better OCR text can improve extraction, but it does not guarantee that a document layout or every field will be recognized.
