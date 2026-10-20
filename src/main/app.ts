@@ -9,7 +9,10 @@ import { registerExtractShipmentsRoute } from './routes/extractShipments';
 import { fastifyErrorResponse } from './utils/fastifyErrorResponse';
 
 interface IBuildAppOptions {
-  processDocument?: (filePath: string, workDirectory: string) => Promise<string>;
+  processDocument?: (
+    filePath: string,
+    workDirectory: string,
+  ) => Promise<string | { pageNumber: number; ocrText: string }[]>;
   cleanupTemporaryDirectory?: (directory: string) => Promise<void>;
   temporaryDirectoryRoot?: string;
   maxFileSizeBytes?: number;

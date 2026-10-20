@@ -4,29 +4,31 @@ import { tmpdir } from 'node:os';
 import { basename, extname, join } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 
-import type { IDocumentProcessor } from '@application/documents/DocumentProcessor';
 import { extractInvoice } from '@application/documents/InvoiceExtractor';
 import { extractShippingManifest } from '@application/documents/ShippingManifestExtractor';
 import { ErrorCode } from '@application/errors/ErrorCode';
 import fastifyMultipart from '@fastify/multipart';
+import { env } from '@shared/config/env';
 import type { FastifyInstance } from 'fastify';
 
-import { OcrmypdfDocumentProcessor } from '../../infrastructure/documents/OcrmypdfDocumentProcessor';
-import { TesseractDocumentProcessor } from '../../infrastructure/documents/TesseractDocumentProcessor';
+import {
+  CloudVisionDocumentProcessor,
+  type IOcrPage,
+} from '../../infrastructure/documents/CloudVisionDocumentProcessor';
 
-const MAX_FILES = 10;
 const MAX_FILE_SIZE_BYTES = 25 * 1024 * 1024;
+const MAX_FILES = 1;
 const PDF_SIGNATURE = Buffer.from('%PDF-');
 const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 const MALFORMED_MULTIPART_MESSAGE = 'Malformed multipart request';
-const MISSING_FILES_MESSAGE = "At least one supported document is required in the 'files' field";
-const INVALID_FILE_MESSAGE = "The 'files' field must contain PDF, PNG, JPG, or JPEG files";
-const TOO_MANY_FILES_MESSAGE = 'A maximum of 10 files is allowed';
+const MISSING_FILES_MESSAGE = "Exactly one PDF is required in the 'file' field";
+const INVALID_FILE_MESSAGE = "The 'file' field must contain one PDF file";
+const TOO_MANY_FILES_MESSAGE = "Exactly one PDF is required in the 'file' field";
 const PROCESSING_FAILURE_REASON = 'Document could not be processed';
 const VALIDATION_ERROR = Symbol('validation-error');
 
 interface IExtractShipmentsOptions {
-  processDocument?: (filePath: string, workDirectory: string) => Promise<string>;
+  processDocument?: (filePath: string, workDirectory: string) => Promise<string | IOcrPage[]>;
   cleanupTemporaryDirectory?: (directory: string) => Promise<void>;
   temporaryDirectoryRoot?: string;
   maxFileSizeBytes?: number;
@@ -84,17 +86,9 @@ export function registerExtractShipmentsRoute(
   options: IExtractShipmentsOptions = {},
 ) {
   const maxFileSizeBytes = options.maxFileSizeBytes ?? MAX_FILE_SIZE_BYTES;
-  const documentProcessor: IDocumentProcessor = options.processDocument
+  const documentProcessor = options.processDocument
     ? { process: options.processDocument }
-    : {
-        async process(filePath, workDirectory) {
-          if (extname(filePath).toLowerCase() === '.pdf') {
-            return new OcrmypdfDocumentProcessor().process(filePath, workDirectory);
-          }
-
-          return new TesseractDocumentProcessor().process(filePath);
-        },
-      };
+    : new CloudVisionDocumentProcessor(env.GOOGLE_API_CLOUD_VISION_SECRET);
   const cleanupTemporaryDirectory =
     options.cleanupTemporaryDirectory ??
     ((directory: string) => rm(directory, { recursive: true, force: true }));
@@ -103,10 +97,10 @@ export function registerExtractShipmentsRoute(
     preservePath: true,
     throwFileSizeLimit: false,
     limits: {
-      fields: MAX_FILES,
-      files: MAX_FILES + 1,
+      fields: 1,
+      files: 2,
       fileSize: maxFileSizeBytes,
-      parts: MAX_FILES * 2 + 1,
+      parts: 3,
     },
   });
 
@@ -127,10 +121,10 @@ export function registerExtractShipmentsRoute(
 
       const parts = request.parts({
         limits: {
-          fields: MAX_FILES,
-          files: MAX_FILES + 1,
+          fields: 1,
+          files: 2,
           fileSize: maxFileSizeBytes,
-          parts: MAX_FILES * 2 + 1,
+          parts: 3,
         },
       });
       const iterator = parts[Symbol.asyncIterator]();
@@ -182,7 +176,7 @@ export function registerExtractShipmentsRoute(
           throw error;
         }
 
-        if (part.fieldname !== 'files') {
+        if (part.fieldname !== 'file') {
           invalidField = true;
         }
 
@@ -190,10 +184,7 @@ export function registerExtractShipmentsRoute(
           tooManyFiles = true;
         }
 
-        if (
-          !['.pdf', '.png', '.jpg', '.jpeg'].includes(fileExtension) ||
-          !(await hasSupportedSignature(filePath, fileExtension))
-        ) {
+        if (fileExtension !== '.pdf' || !(await hasSupportedSignature(filePath, fileExtension))) {
           invalidField = true;
         }
 
@@ -230,24 +221,33 @@ export function registerExtractShipmentsRoute(
         }
 
         try {
-          const ocrText = await documentProcessor.process(file.filePath, workDirectory);
-          const extraction = extractShippingManifest(ocrText) ?? extractInvoice(ocrText);
-
+          const processingResult = await documentProcessor.process(file.filePath, workDirectory);
+          const pages =
+            typeof processingResult === 'string'
+              ? [{ pageNumber: 1, ocrText: processingResult }]
+              : processingResult;
           documents.push(
-            extraction
-              ? {
-                  fileName: file.fileName,
-                  documentType: extraction.documentType,
-                  status: 'success',
-                  fields: extraction.fields,
-                  ocrText,
-                  warnings: extraction.warnings,
-                }
-              : {
-                  fileName: file.fileName,
-                  status: 'unrecognized',
-                  ocrText,
-                },
+            ...pages.map((page) => {
+              const extraction =
+                extractShippingManifest(page.ocrText) ?? extractInvoice(page.ocrText);
+
+              return extraction
+                ? {
+                    fileName: file.fileName,
+                    pageNumber: page.pageNumber,
+                    documentType: extraction.documentType,
+                    status: 'success',
+                    fields: extraction.fields,
+                    ocrText: page.ocrText,
+                    warnings: extraction.warnings,
+                  }
+                : {
+                    fileName: file.fileName,
+                    pageNumber: page.pageNumber,
+                    status: 'unrecognized',
+                    ocrText: page.ocrText,
+                  };
+            }),
           );
         } catch {
           documents.push({
