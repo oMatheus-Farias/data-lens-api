@@ -5,11 +5,11 @@ This context receives batches of scanned documents and returns recognized data f
 ## Documents
 
 **Batch**:
-A set of scanned PDFs and images submitted together for processing and returned in a single response.
+A single scanned PDF submitted for processing, with each page treated as a document unit and returned in one response.
 
 **Romaneio**:
-A document that links a shipment to boxes, packages, and invoices.
-_Avoid_: shipping list
+A document headed “New Shipping List” that identifies a shipment and lists its fiscal notes, weights, and volumes. It relates to DANFEs through the invoice number in each fiscal note row.
+_Avoid_: shipping list (as a generic domain term; “New Shipping List” is the printed document title)
 
 **DANFE**:
 The printed auxiliary document for a Brazilian electronic invoice (NF-e), containing tax identification, parties, amounts, and products.
