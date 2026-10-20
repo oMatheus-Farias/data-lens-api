@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { basename, extname, join } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 
+import { extractDanfe } from '@application/documents/DanfeExtractor';
 import type { IDocumentProcessor } from '@application/documents/DocumentProcessor';
 import { ErrorCode } from '@application/errors/ErrorCode';
 import fastifyMultipart from '@fastify/multipart';
@@ -212,11 +213,24 @@ export function registerExtractRemessaRoute(
 
         try {
           const ocrText = await documentProcessor.process(file.filePath, workDirectory);
-          documents.push({
-            fileName: file.fileName,
-            status: 'unrecognized',
-            ocrText,
-          });
+          const extraction = extractDanfe(ocrText);
+
+          documents.push(
+            extraction
+              ? {
+                  fileName: file.fileName,
+                  documentType: extraction.documentType,
+                  status: 'success',
+                  fields: extraction.fields,
+                  ocrText,
+                  warnings: extraction.warnings,
+                }
+              : {
+                  fileName: file.fileName,
+                  status: 'unrecognized',
+                  ocrText,
+                },
+          );
         } catch {
           documents.push({
             fileName: file.fileName,
