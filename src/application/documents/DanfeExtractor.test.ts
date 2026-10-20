@@ -84,3 +84,13 @@ test('returns null for missing DANFE values and rejects unrelated pages', () => 
   assert.equal(result.grossWeight, null);
   assert.equal(extractDanfe('shipping list', 2), null);
 });
+
+test('extracts party numbers when OCR omits the label colon', () => {
+  const text = completeDanfe
+    .replace('NÚMERO: 00123', 'Nº 00123')
+    .replace('NÚMERO: 00456', 'Nº 00456');
+  const result = extractDanfe(text, 1);
+
+  assert.equal(result?.sender.number, '00123');
+  assert.equal(result?.recipient.number, '00456');
+});

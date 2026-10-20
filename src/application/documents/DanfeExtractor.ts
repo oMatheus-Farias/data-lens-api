@@ -31,7 +31,7 @@ const PARTY_LABELS: Record<Field, RegExp> = {
   street: /(?:logradouro|endere[cç]o|rua|avenida)\s*[:.]?\s*(.+)/i,
   neighborhood: /bairro\s*[:.]?\s*(.+)/i,
   postalCode: /(?:CEP|c[oó]digo\s+postal)\s*[:.]?\s*([\d.-]+)/i,
-  number: /(?:^|\n)\s*(?:n[uú]mero|n[ºo°])\s*[:.]\s*([\w/-]+)/i,
+  number: /(?:^|\n)\s*(?:n[uú]mero|n[ºo°])\s*[:.]?\s*([\w/-]+)/i,
   complement: /complemento\s*[:.]?\s*(.+)/i,
   municipality: /(?:munic[ií]pio|cidade)\s*[:.]?\s*(.+)/i,
   phone_fax: /(?:fone\s*\/\s*fax|telefone|fone|fax)\s*[:.]?\s*([\d()+\s-]+)/i,
