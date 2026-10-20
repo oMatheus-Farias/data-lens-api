@@ -70,8 +70,58 @@ test('accepts one PDF in the singular file field and returns OCR pages in order'
           ocrText: 'second page text',
         },
       ],
+      matches: [],
     });
   });
+});
+
+test('returns Romaneio to DANFE matches alongside all extracted pages', async () => {
+  const app = buildApp({
+    processDocument: async () => [
+      {
+        pageNumber: 1,
+        ocrText: [
+          'New Shipping List',
+          'Country BR Shipname BR-PIQ1623',
+          'Shipment 0006500117770',
+          'DN City State Route',
+          '1147 SAO PAULO SP SPC006',
+          'Box Number Box Code Fiscal Note Real Wt (Kg) Cubic Wt (Kg) Vol (m3)',
+          '5551001 CODE-1 000864375-69 47,420 199,800 0,666',
+        ].join('\n'),
+      },
+      {
+        pageNumber: 5,
+        ocrText: 'DANFE\nNOTA FISCAL ELETRÔNICA\nN° 00086437569',
+      },
+    ],
+  });
+  try {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/shipments/extract',
+      headers: { 'content-type': `multipart/form-data; boundary=${boundary}` },
+      payload: createMultipart([{ filename: 'batch.pdf', content: pdf('fixture') }]),
+    });
+    const body = response.json();
+
+    assert.equal(response.statusCode, 200);
+    assert.equal(body.docExtracts.length, 2);
+    assert.equal(body.docExtracts[0].type, 'shippingList');
+    assert.equal(body.docExtracts[1].type, 'nfDanfe');
+    assert.deepEqual(body.matches, [
+      {
+        status: 'matched',
+        fiscalNote: '000864375-69',
+        romaneioPageNumber: 1,
+        romaneioRowNumber: 1,
+        danfePageNumber: 5,
+        candidatePageNumbers: [],
+      },
+    ]);
+  } finally {
+    await app.close();
+  }
 });
 
 test('returns DANFE OCR pages as nfDanfe records with their page number', async () => {
@@ -164,6 +214,7 @@ test('cleans up request files when OCR processing fails and returns a safe error
           reason: 'Document could not be processed',
         },
       ],
+      matches: [],
     });
     assert.deepEqual(await readdir(root), []);
   } finally {

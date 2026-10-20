@@ -4,8 +4,12 @@ import { tmpdir } from 'node:os';
 import { basename, extname, join } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 
-import { extractDanfe } from '@application/documents/DanfeExtractor';
-import { extractRomaneio } from '@application/documents/RomaneioExtractor';
+import { extractDanfe, type IDanfeExtraction } from '@application/documents/DanfeExtractor';
+import { matchRomaneioDanfe } from '@application/documents/RomaneioDanfeMatcher';
+import {
+  extractRomaneio,
+  type IShippingListExtraction,
+} from '@application/documents/RomaneioExtractor';
 import { ErrorCode } from '@application/errors/ErrorCode';
 import fastifyMultipart from '@fastify/multipart';
 import { env } from '@shared/config/env';
@@ -248,7 +252,16 @@ export function registerExtractShipmentsRoute(
         }
       }
 
-      responseBody = { docExtracts };
+      const matches = matchRomaneioDanfe(
+        docExtracts.filter(
+          (docExtract): docExtract is IShippingListExtraction => docExtract.type === 'shippingList',
+        ),
+        docExtracts.filter(
+          (docExtract): docExtract is IDanfeExtraction => docExtract.type === 'nfDanfe',
+        ),
+      );
+
+      responseBody = { docExtracts, matches };
     } catch (error) {
       if (error === VALIDATION_ERROR || isMultipartValidationError(error)) {
         statusCode = 400;

@@ -96,7 +96,7 @@ export function extractDanfe(ocrText: string, pageNumber: number): IDanfeExtract
     recipient: party(recipientText, true) as IDanfeParty & { dn: string | null },
     invoice_number: value(
       text,
-      /(?:N[ÚU]MERO\s+DA\s+NOTA|N[ºO.]\s*DA\s+NOTA|N[ºO.])\s*[:.]?\s*([\d./-]+)/i,
+      /(?:N[ÚU]MERO\s+DA\s+NOTA|N[º°O.]\s*DA\s+NOTA|N[º°O.])\s*[:.]?\s*([\d./-]+)/i,
     ),
     series: value(text, /S[ÉE]RIE\s*[:.]?\s*([\w./-]+)/i),
     issueDate: value(text, /DATA\s+DE\s+EMISS[AÃ]O\s*[:.]?\s*([\d./-]+)/i),
