@@ -209,6 +209,78 @@ test('classifies a DANFE and returns organized fields and complete OCR text', as
   }
 });
 
+test('classifies a romaneio and returns grouped shipment and box data', async () => {
+  const romaneioOcr = [
+    'New Shipping List',
+    'Closure date: 19/10/2026 08:30',
+    'Country BR Shipname NavioExemplo',
+    'Shipment SHIP-123',
+    'Operator OperadorExemplo Payment Option F-02',
+    'Carrier C-100 Expresso Exemplo',
+    'Packaging QTD',
+    'Cardboard Box 2',
+    'TOTAL 2',
+    'DN City State Route',
+    '38 SAO PAULO SP SPC006',
+    'Box Number Box Code Fiscal Note Real Wt (Kg) Cubic Wt (Kg) Vol (m3)',
+    '5551001 CODE-1 12345-67 5,752 57,251 0,191',
+    '5551002 CODE-2 12346-78 2,907 32,832 0,109',
+    'Total 8,659 90,083 0,300',
+  ].join('\n');
+  const app = buildApp({ processDocument: async () => romaneioOcr });
+
+  try {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/remessas/extrair',
+      headers: { 'content-type': `multipart/form-data; boundary=${boundary}` },
+      payload: createMultipart([{ filename: 'romaneio.pdf', content: pdf('sample') }]),
+    });
+
+    assert.equal(response.statusCode, 200);
+    const document = response.json().documents[0];
+    assert.equal(document.documentType, 'romaneio');
+    assert.equal(document.status, 'success');
+    assert.equal(document.fileName, 'romaneio.pdf');
+    assert.equal(document.ocrText, romaneioOcr);
+    assert.equal(document.fields.remessa.numero, 'SHIP-123');
+    assert.equal(document.fields.remessa.pais, 'BR');
+    assert.equal(document.fields.transportadora.razaoSocial, 'Expresso Exemplo');
+    assert.equal(document.fields.transportadora.identificador, 'C-100');
+    assert.equal(document.fields.rota.origem, 'SAO PAULO');
+    assert.equal(document.fields.rota.estado, 'SP');
+    assert.equal(document.fields.rota.codigo, 'SPC006');
+    assert.equal(document.fields.fechamento.dataHora, '19/10/2026 08:30');
+    assert.equal(document.fields.volumes.quantidade, '2');
+    assert.equal(document.fields.volumes.embalagem, 'Cardboard Box');
+    assert.equal(document.fields.totais.quantidadeCaixas, '2');
+    assert.equal(document.fields.totais.peso, '8,659');
+    assert.equal(document.fields.totais.pesoCubico, '90,083');
+    assert.equal(document.fields.totais.volume, '0,300');
+    assert.deepEqual(document.fields.caixas, [
+      {
+        referencia: '5551001',
+        codigo: 'CODE-1',
+        notaFiscal: '12345-67',
+        peso: '5,752',
+        pesoCubico: '57,251',
+        volume: '0,191',
+      },
+      {
+        referencia: '5551002',
+        codigo: 'CODE-2',
+        notaFiscal: '12346-78',
+        peso: '2,907',
+        pesoCubico: '32,832',
+        volume: '0,109',
+      },
+    ]);
+    assert.ok(document.warnings.includes('remessa.data: campo não reconhecido no OCR'));
+  } finally {
+    await app.close();
+  }
+});
+
 test('reports a failed PDF safely and continues processing later files', async () => {
   await withApp(async (app) => {
     const response = await app.inject({

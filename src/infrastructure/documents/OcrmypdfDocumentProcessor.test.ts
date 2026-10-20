@@ -23,12 +23,20 @@ test('runs local OCRmyPDF with Portuguese and English and returns sidecar text',
     const ocrText = await processor.process(pdfPath, workDirectory);
 
     assert.equal(ocrText, 'recognized OCR text\ncomplete output\n');
-    assert.deepEqual(actualArgs.slice(0, 3), ['-l', 'por+eng', '--deskew']);
-    assert.equal(actualArgs[3], '--sidecar');
-    assert.equal(actualArgs[5], pdfPath);
-    assert.equal(actualArgs[6], join(workDirectory, 'upload-1-ocr.pdf'));
+    assert.deepEqual(actualArgs.slice(0, 6), [
+      '-l',
+      'por+eng',
+      '--deskew',
+      '--tesseract-pagesegmode',
+      '11',
+      '--oversample',
+    ]);
+    assert.equal(actualArgs[6], '400');
+    assert.equal(actualArgs[7], '--sidecar');
+    assert.equal(actualArgs[9], pdfPath);
+    assert.equal(actualArgs[10], join(workDirectory, 'upload-1-ocr.pdf'));
 
-    const sidecarPath = actualArgs[4];
+    const sidecarPath = actualArgs[8];
     assert.ok(sidecarPath);
     assert.equal(await readFile(sidecarPath, 'utf8'), 'recognized OCR text\ncomplete output\n');
   } finally {
