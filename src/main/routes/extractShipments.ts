@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { basename, extname, join } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 
+import { extractDanfe } from '@application/documents/DanfeExtractor';
 import { extractRomaneio } from '@application/documents/RomaneioExtractor';
 import { ErrorCode } from '@application/errors/ErrorCode';
 import fastifyMultipart from '@fastify/multipart';
@@ -229,7 +230,8 @@ export function registerExtractShipmentsRoute(
           docExtracts.push(
             ...pages.map(
               (page) =>
-                extractRomaneio(page.ocrText, page.pageNumber) ?? {
+                extractRomaneio(page.ocrText, page.pageNumber) ??
+                extractDanfe(page.ocrText, page.pageNumber) ?? {
                   type: 'unrecognized',
                   pageNumber: page.pageNumber,
                   ocrText: page.ocrText,
