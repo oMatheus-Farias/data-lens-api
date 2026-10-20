@@ -4,9 +4,71 @@ import { basename, dirname, extname, join, sep } from 'node:path';
 
 import { pdf } from 'pdf-to-img';
 
-export interface IOcrPage {
-  pageNumber: number;
-  ocrText: string;
+import type { IOcrPage, IOcrWord } from '../../application/documents/OcrPage';
+
+interface IVisionVertex {
+  x?: number;
+  y?: number;
+}
+
+interface IVisionWord {
+  symbols?: { text?: string }[];
+  confidence?: number;
+  boundingBox?: {
+    vertices?: IVisionVertex[];
+    normalizedVertices?: IVisionVertex[];
+  };
+}
+
+interface IVisionPage {
+  width?: number;
+  height?: number;
+  blocks?: {
+    paragraphs?: {
+      words?: IVisionWord[];
+    }[];
+  }[];
+}
+
+function ocrWords(pages: IVisionPage[] | undefined): IOcrWord[] {
+  return (pages ?? []).flatMap((page) => {
+    const width = page.width ?? 0;
+    const height = page.height ?? 0;
+
+    return (page.blocks ?? []).flatMap((block) =>
+      (block.paragraphs ?? []).flatMap((paragraph) =>
+        (paragraph.words ?? []).flatMap((word) => {
+          const text = (word.symbols ?? []).map((symbol) => symbol.text ?? '').join('');
+          const boundingBox = word.boundingBox;
+          const normalized = (boundingBox?.normalizedVertices?.length ?? 0) > 0;
+          const vertices = normalized
+            ? (boundingBox?.normalizedVertices ?? [])
+            : (boundingBox?.vertices ?? []);
+
+          if (!text || vertices.length === 0 || (!normalized && (!width || !height))) {
+            return [];
+          }
+
+          const xCoordinates = vertices.map((vertex) => (vertex.x ?? 0) / (normalized ? 1 : width));
+          const yCoordinates = vertices.map(
+            (vertex) => (vertex.y ?? 0) / (normalized ? 1 : height),
+          );
+          const x = Math.max(0, Math.min(...xCoordinates));
+          const y = Math.max(0, Math.min(...yCoordinates));
+          const right = Math.min(1, Math.max(...xCoordinates));
+          const bottom = Math.min(1, Math.max(...yCoordinates));
+
+          return [
+            {
+              text,
+              confidence: typeof word.confidence === 'number' ? word.confidence : null,
+              box: { x, y, width: Math.max(0, right - x), height: Math.max(0, bottom - y) },
+            },
+          ];
+        }),
+      ),
+    );
+  });
 }
 
 type IRenderPdf = (pdfPath: string, workDirectory: string) => Promise<string[]>;
@@ -48,7 +110,9 @@ export class CloudVisionDocumentProcessor {
     private readonly request: IRequest = fetch,
     private readonly debugOcr = false,
     private readonly logOcrPage: IOcrDebugLogger = (page) =>
-      process.stdout.write(`[cloud-vision-ocr] ${JSON.stringify(page)}\n`),
+      process.stdout.write(
+        `[cloud-vision-ocr] ${JSON.stringify({ pageNumber: page.pageNumber, ocrText: page.ocrText })}\n`,
+      ),
   ) {}
 
   async process(pdfPath: string, workDirectory: string): Promise<IOcrPage[]> {
@@ -92,7 +156,7 @@ export class CloudVisionDocumentProcessor {
         let payload: {
           responses?: {
             error?: unknown;
-            fullTextAnnotation?: { text?: string };
+            fullTextAnnotation?: { text?: string; pages?: IVisionPage[] };
             textAnnotations?: { description?: string }[];
           }[];
         };
@@ -107,10 +171,12 @@ export class CloudVisionDocumentProcessor {
         }
 
         for (const [index, result] of (payload.responses ?? []).entries()) {
-          const page = {
+          const words = ocrWords(result.fullTextAnnotation?.pages);
+          const page: IOcrPage = {
             pageNumber: offset + index + 1,
             ocrText:
               result.fullTextAnnotation?.text ?? result.textAnnotations?.[0]?.description ?? '',
+            ...(words.length > 0 ? { words } : {}),
           };
           pages.push(page);
           if (this.debugOcr) {

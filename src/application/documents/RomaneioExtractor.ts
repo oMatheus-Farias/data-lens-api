@@ -1,3 +1,4 @@
+import type { IOcrWord } from './OcrPage';
 import { extractShippingManifest } from './ShippingManifestExtractor';
 
 export interface IShippingListFiscalNote {
@@ -26,8 +27,9 @@ function extractDnNumber(ocrText: string): string | null {
 export function extractRomaneio(
   ocrText: string,
   pageNumber: number,
+  ocrWords?: IOcrWord[],
 ): IShippingListExtraction | null {
-  const extraction = extractShippingManifest(ocrText);
+  const extraction = extractShippingManifest(ocrText, ocrWords);
 
   if (!extraction) {
     return null;

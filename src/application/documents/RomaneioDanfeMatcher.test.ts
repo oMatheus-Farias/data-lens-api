@@ -6,13 +6,13 @@ import { matchRomaneioDanfe } from './RomaneioDanfeMatcher';
 const romaneio = {
   type: 'shippingList' as const,
   pageNumber: 2,
-  shipname: 'BR-PIQ1623',
-  shipment: '0006500117770',
-  dn: { number: '1147' },
+  shipname: 'TEST-SHIP-01',
+  shipment: '9999999999',
+  dn: { number: '7788' },
   data: [
-    { fiscalNote: '000864375-69', realWt: '1,00', cubicWt: null, Vol: null },
-    { fiscalNote: '000864376-70', realWt: '2,00', cubicWt: null, Vol: null },
-    { fiscalNote: '000864377-71', realWt: '3,00', cubicWt: null, Vol: null },
+    { fiscalNote: '900001234-01', realWt: '1,00', cubicWt: null, Vol: null },
+    { fiscalNote: '900001235-01', realWt: '2,00', cubicWt: null, Vol: null },
+    { fiscalNote: '900001236-01', realWt: '3,00', cubicWt: null, Vol: null },
   ],
 };
 
@@ -49,12 +49,12 @@ test('links each fiscal note row to a unique DANFE and reports missing or duplic
   assert.deepEqual(
     matchRomaneioDanfe(
       [romaneio],
-      [danfe('00086437569', 4), danfe('00086437771', 6), danfe('000864377-71', 7)],
+      [danfe('90000123401', 4), danfe('90000123601', 6), danfe('900001236-01', 7)],
     ),
     [
       {
         status: 'matched',
-        fiscalNote: '000864375-69',
+        fiscalNote: '900001234-01',
         romaneioPageNumber: 2,
         romaneioRowNumber: 1,
         danfePageNumber: 4,
@@ -62,7 +62,7 @@ test('links each fiscal note row to a unique DANFE and reports missing or duplic
       },
       {
         status: 'unmatched',
-        fiscalNote: '000864376-70',
+        fiscalNote: '900001235-01',
         romaneioPageNumber: 2,
         romaneioRowNumber: 2,
         danfePageNumber: null,
@@ -70,7 +70,7 @@ test('links each fiscal note row to a unique DANFE and reports missing or duplic
       },
       {
         status: 'ambiguous',
-        fiscalNote: '000864377-71',
+        fiscalNote: '900001236-01',
         romaneioPageNumber: 2,
         romaneioRowNumber: 3,
         danfePageNumber: null,

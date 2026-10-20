@@ -81,17 +81,17 @@ test('returns Romaneio to DANFE matches alongside all extracted pages', async ()
         pageNumber: 1,
         ocrText: [
           'New Shipping List',
-          'Country BR Shipname BR-PIQ1623',
-          'Shipment 0006500117770',
+          'Country ZZ Shipname TEST-SHIP-01',
+          'Shipment 9999999999',
           'DN City State Route',
-          '1147 SAO PAULO SP SPC006',
+          '7788 CITY ALPHA XX TST009',
           'Box Number Box Code Fiscal Note Real Wt (Kg) Cubic Wt (Kg) Vol (m3)',
-          '5551001 CODE-1 000864375-69 47,420 199,800 0,666',
+          '12345001 CODE-1 900001234-01 11,111 22,222 0,333',
         ].join('\n'),
       },
       {
         pageNumber: 5,
-        ocrText: 'DANFE\nNOTA FISCAL ELETRÔNICA\nN° 00086437569',
+        ocrText: 'DANFE\nNOTA FISCAL ELETRÔNICA\nN° 90000123401',
       },
     ],
   });
@@ -111,7 +111,7 @@ test('returns Romaneio to DANFE matches alongside all extracted pages', async ()
     assert.deepEqual(body.matches, [
       {
         status: 'matched',
-        fiscalNote: '000864375-69',
+        fiscalNote: '900001234-01',
         romaneioPageNumber: 1,
         romaneioRowNumber: 1,
         danfePageNumber: 5,
@@ -133,7 +133,7 @@ test('matches a column-oriented Romaneio row to its DANFE through the extract en
           'Shipname TEST-SHIP',
           'Shipment 6500000000',
           'DN',
-          '1147',
+          '7788',
           'Box Number',
           '55510000000',
           'Box Code',

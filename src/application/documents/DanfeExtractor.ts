@@ -1,3 +1,6 @@
+import type { IOcrWord } from './OcrPage';
+import { extractSpatialOcrValues } from './SpatialOcrExtractor';
+
 interface IDanfeParty {
   street: string | null;
   neighborhood: string | null;
@@ -41,6 +44,72 @@ const PARTY_LABELS: Record<Field, RegExp> = {
 
 const PARTY_LABEL_LINE =
   /^(?:LOGRADOURO|ENDERE[CÇ]O|RUA|AVENIDA|BAIRRO|CEP|C[ÓO]DIGO POSTAL|N[ÚU]MERO|N[ºO°]|COMPLEMENTO|MUNIC[IÍ]PIO|CIDADE|FONE|FAX|TELEFONE|CNPJ|DN)\b/i;
+
+const RECIPIENT_SPATIAL_LABELS = {
+  street: /\b(?:LOGRADOURO|ENDERE[CÇ]O)\b/i,
+  neighborhood: /\bBAIRRO(?:\s*\/\s*DISTRITO)?\b/i,
+  postalCode: /\bCEP\b/i,
+  number: /\bN[ÚU]MERO\b/i,
+  complement: /\bCOMPLEMENTO\b/i,
+  municipality: /\b(?:MUNIC[IÍ]PIO|CIDADE)\b/i,
+  phone_fax: /\b(?:FONE\s*\/\s*FAX|TELEFONE|FONE|FAX)\b/i,
+  dn: /\bDN\b/i,
+};
+
+const DANFE_TOTAL_SPATIAL_LABELS = {
+  icmsCalculationBasis: /\bBASE\s+DE\s+C[AÁ]LCULO\s+(?:DO\s+)?ICMS\b(?!\s+SUBSTITUI[CÇ][ÃA]O)/i,
+  icmsAmount: /\bVALOR\s+(?:DO\s+)?I(?:C(?:H)?M|CH?)S\b/i,
+  totalProductsAmount: /\bVALOR\s+TOTAL\s+DOS\s+PRODUTOS\b/i,
+  totalInvoiceAmount: /\bVALOR\s+TOTAL\s+DA\s+NOTA\b/i,
+};
+
+function spatialFieldValue(field: string | undefined, validator: RegExp): string | null {
+  return field && validator.test(field) ? field : null;
+}
+
+function invoiceNumber(text: string): string | null {
+  const labeled = value(
+    text,
+    /(?:N[ÚU]MERO\s+DA\s+NOTA|N[º°O.]\s*DA\s+NOTA|N[º°O.])\s*[:.]?\s*([\d./-]+)/i,
+  );
+  if (labeled && labeled.length >= 6) {
+    return labeled;
+  }
+
+  const danfeHeader = /DANFE[\s\S]{0,300}?(?=CHAVE\s+DE\s+ACESSO)/i.exec(text)?.[0];
+  return danfeHeader?.match(/(?<!\d)(\d{6,9})\s*\n?\s*S[ÉE]RIE\b/i)?.[1] ?? null;
+}
+
+function labeledAmount(text: string, label: RegExp): string | null {
+  const lines = text.split('\n');
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index] ?? '';
+    const match = label.exec(line);
+    if (!match || match.index === undefined) {
+      continue;
+    }
+
+    const inline = line.slice(match.index + match[0].length).match(/[\d][\d.,]*/)?.[0];
+    if (inline) {
+      return inline;
+    }
+    for (
+      let candidateIndex = index + 1;
+      candidateIndex < Math.min(index + 6, lines.length);
+      candidateIndex += 1
+    ) {
+      const candidate = lines[candidateIndex]?.trim() ?? '';
+      if (/^(?:VALOR|BASE|AL[IÍ]QUOTA|ICMS|IPI|FRETE|SEGURO)\b/i.test(candidate)) {
+        continue;
+      }
+      const amount = candidate.match(/(?<!\d)\d[\d.,]*(?!\d)/)?.[0];
+      if (amount) {
+        return amount;
+      }
+    }
+  }
+  return null;
+}
 
 function clean(value: string | undefined): string | null {
   return value?.trim().replace(/\s+/g, ' ') || null;
@@ -289,7 +358,11 @@ function footerTableAmounts(text: string): {
   };
 }
 
-export function extractDanfe(ocrText: string, pageNumber: number): IDanfeExtraction | null {
+export function extractDanfe(
+  ocrText: string,
+  pageNumber: number,
+  ocrWords?: IOcrWord[],
+): IDanfeExtraction | null {
   const text = ocrText.replace(/\r/g, '');
 
   if (
@@ -328,6 +401,19 @@ export function extractDanfe(ocrText: string, pageNumber: number): IDanfeExtract
   const key = value(text, /CHAVE\s+DE\s+ACESSO\s*[:.]?\s*([\d\s]{30,})/i);
   const cnpjs = cnpjValues(text);
   const tableAmounts = footerTableAmounts(text);
+  const spatialRecipient = ocrWords
+    ? extractSpatialOcrValues(ocrWords, RECIPIENT_SPATIAL_LABELS, {
+        regionStart: /DESTINAT[AÁ]RIO/i,
+        regionEnd: /FATURA|C[ÁA]LCULO\s+DO\s+IMPOSTO/i,
+      })
+    : {};
+  const spatialTotals = ocrWords
+    ? extractSpatialOcrValues(ocrWords, DANFE_TOTAL_SPATIAL_LABELS, {
+        regionStart: /C[ÁA]LCULO\s+DO\s+IMPOSTO/i,
+        regionEnd: /TRANSPORTADOR/i,
+        maxRegionHeight: 0.24,
+      })
+    : {};
   const sender = party(senderText);
   sender.cnpjCpf = cnpjs[0] ?? sender.cnpjCpf;
   const recipient = party(
@@ -338,30 +424,74 @@ export function extractDanfe(ocrText: string, pageNumber: number): IDanfeExtract
   ) as IDanfeParty & { dn: string | null };
   recipient.cnpjCpf = cnpjs.at(-1) ?? recipient.cnpjCpf;
 
+  const spatialPartyValues = {
+    street: spatialFieldValue(
+      spatialRecipient.street?.text,
+      /^(?!.*\b(?:MUNIC[IÍ]PIO|BAIRRO|COMPLEMENTO|CNPJ|INSCRI[CÇ][ÃA]O|TRANSPORTADOR|VALOR|C[ÁA]LCULO)\b)[\p{L}\d][\p{L}\d .,'/-]{0,99}$/iu,
+    ),
+    neighborhood: spatialFieldValue(
+      spatialRecipient.neighborhood?.text,
+      /^[\p{L}][\p{L}\d .'-]+$/u,
+    ),
+    postalCode: spatialFieldValue(spatialRecipient.postalCode?.text, /^\d{5}-?\d{3}$/),
+    number: spatialFieldValue(spatialRecipient.number?.text, /^\d+[A-Z]?(?:[-/]\w+)?$/i),
+    complement: spatialFieldValue(spatialRecipient.complement?.text, /^[\p{L}][\p{L}\d .,'/-]*$/u),
+    municipality: spatialFieldValue(
+      spatialRecipient.municipality?.text,
+      /^[\p{L}][\p{L}\d .'-]+$/u,
+    ),
+    phone_fax: spatialFieldValue(spatialRecipient.phone_fax?.text, /^[\d() .+-]+$/),
+    dn: spatialFieldValue(spatialRecipient.dn?.text, /^[\d./-]+$/),
+  };
+  for (const [field, fieldValue] of Object.entries(spatialPartyValues)) {
+    const spatialValue = spatialRecipient[field];
+    if (
+      fieldValue &&
+      (spatialValue?.confidence === null || (spatialValue?.confidence ?? 0) >= 0.5)
+    ) {
+      if (field === 'dn') {
+        recipient.dn = fieldValue;
+      } else if (field in recipient) {
+        recipient[field as keyof IDanfeParty] = fieldValue;
+      }
+    }
+  }
+
+  const spatialAmount = (
+    field: { text: string; confidence: number | null } | undefined,
+  ): string | null => {
+    if (field?.confidence !== null && field && field.confidence < 0.5) {
+      return null;
+    }
+
+    return spatialFieldValue(field?.text, /^\d[\d.,]*$/);
+  };
+
   return {
     type: 'nfDanfe',
     pageNumber,
     sender,
     recipient,
-    invoice_number: value(
-      text,
-      /(?:N[ÚU]MERO\s+DA\s+NOTA|N[º°O.]\s*DA\s+NOTA|N[º°O.])\s*[:.]?\s*([\d./-]+)/i,
-    ),
+    invoice_number: invoiceNumber(text),
     series: value(text, /S[ÉE]RIE\s*[:.]?\s*([\w./-]+)/i),
     issueDate: value(text, /DATA\s+DE\s+EMISS[AÃ]O\s*[:.]?\s*([\d./-]+)/i),
     accessKey: key?.replace(/\s+/g, '') ?? null,
     icmsCalculationBasis:
+      spatialAmount(spatialTotals.icmsCalculationBasis) ??
       tableAmounts.icmsCalculationBasis ??
       value(totalsText, /BASE\s+DE\s+C[AÁ]LCULO\s+(?:DO\s+)?ICMS(?!\s+ST)\s*[:.]?\s*([\d.,]+)/i),
     icmsAmount:
+      spatialAmount(spatialTotals.icmsAmount) ??
       tableAmounts.icmsAmount ??
-      value(totalsText, /VALOR\s+(?:DO\s+)?ICMS(?!\s+ST)\s*[:.]?\s*([\d.,]+)/i),
+      labeledAmount(text, /VALOR\s+(?:DO\s+)?IC(?:M|H|MH)S(?!\s+ST)\b/i),
     totalProducts_amount:
+      spatialAmount(spatialTotals.totalProductsAmount) ??
       tableAmounts.totalProductsAmount ??
       value(totalsText, /VALOR\s+(?:TOTAL\s+)?DOS\s+PRODUTOS\s*[:.]?\s*([\d.,]+)/i),
     totalInvoiceAmount:
+      spatialAmount(spatialTotals.totalInvoiceAmount) ??
       tableAmounts.totalInvoiceAmount ??
-      value(totalsText, /VALOR\s+TOTAL\s+DA\s+(?:NOTA|NF-?E?)\s*[:.]?\s*([\d.,]+)/i),
+      labeledAmount(text, /VALOR\s+TOTAL\s+DA\s+(?:NOTA|NF-?E?)\b/i),
     grossWeight: grossWeight(weightText),
   };
 }

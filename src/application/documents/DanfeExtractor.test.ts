@@ -2,33 +2,34 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import { extractDanfe } from './DanfeExtractor';
+import type { IOcrWord } from './OcrPage';
 
 const completeDanfe = `
 DANFE
 NOTA FISCAL ELETRÔNICA
 EMITENTE
-LOGRADOURO: Rua das Flores
+LOGRADOURO: Rua Exemplo Um
 BAIRRO: Centro
-CEP: 01000-000
+CEP: 00000-000
 NÚMERO: 00123
 COMPLEMENTO: Sala 02
-MUNICÍPIO: São Paulo - SP
-FONE/FAX: (11) 3333-4444
-CNPJ/CPF: 12.345.678/0001-90
+MUNICÍPIO: Cidade Alfa - XX
+FONE/FAX: (00) 0000-0000
+CNPJ/CPF: 00.000.000/0000-00
 DESTINATÁRIO/REMETENTE
-LOGRADOURO: Avenida Brasil
-BAIRRO: Jardim América
-CEP: 01310-100
+LOGRADOURO: Avenida Ficticia
+BAIRRO: Jardim Ficticio
+CEP: 99999-999
 NÚMERO: 00456
 COMPLEMENTO: Bloco B
-MUNICÍPIO: Campinas - SP
-FONE/FAX: (19) 3222-5555
-CNPJ/CPF: 123.456.789-00
+MUNICÍPIO: Cidade Beta - XX
+FONE/FAX: (00) 0000-0001
+CNPJ/CPF: 000.000.000-00
 DN: 000123456789
 NÚMERO DA NOTA: 000123
 SÉRIE: 001
-DATA DE EMISSÃO: 20/10/2026
-CHAVE DE ACESSO: 35261012345678000190550010000001231234567890
+DATA DE EMISSÃO: 31/12/2099
+CHAVE DE ACESSO: 11111111111111111111111111111111111111111111
 CÁLCULO DO IMPOSTO
 BASE DE CÁLCULO DO ICMS: 1.500,00
 VALOR DO ICMS: 270,00
@@ -42,30 +43,30 @@ test('maps DANFE sections and keeps source values as strings', () => {
     type: 'nfDanfe',
     pageNumber: 3,
     sender: {
-      street: 'Rua das Flores',
+      street: 'Rua Exemplo Um',
       neighborhood: 'Centro',
-      postalCode: '01000-000',
+      postalCode: '00000-000',
       number: '00123',
       complement: 'Sala 02',
-      municipality: 'São Paulo - SP',
-      phone_fax: '(11) 3333-4444',
-      cnpjCpf: '12.345.678/0001-90',
+      municipality: 'Cidade Alfa - XX',
+      phone_fax: '(00) 0000-0000',
+      cnpjCpf: '00.000.000/0000-00',
     },
     recipient: {
-      street: 'Avenida Brasil',
-      neighborhood: 'Jardim América',
-      postalCode: '01310-100',
+      street: 'Avenida Ficticia',
+      neighborhood: 'Jardim Ficticio',
+      postalCode: '99999-999',
       number: '00456',
       complement: 'Bloco B',
-      municipality: 'Campinas - SP',
-      phone_fax: '(19) 3222-5555',
-      cnpjCpf: '123.456.789-00',
+      municipality: 'Cidade Beta - XX',
+      phone_fax: '(00) 0000-0001',
+      cnpjCpf: '000.000.000-00',
       dn: '000123456789',
     },
     invoice_number: '000123',
     series: '001',
-    issueDate: '20/10/2026',
-    accessKey: '35261012345678000190550010000001231234567890',
+    issueDate: '31/12/2099',
+    accessKey: '11111111111111111111111111111111111111111111',
     icmsCalculationBasis: '1.500,00',
     icmsAmount: '270,00',
     totalProducts_amount: '1.500,00',
@@ -88,18 +89,18 @@ test('returns null for missing DANFE values and rejects unrelated pages', () => 
 test('extracts footer totals when Vision flattens DANFE table columns and misreads labels', () => {
   const ocrText = `DANFE NOTA FISCAL ELETRÔNICA
 VALOR DO ICHS BASE DE CÁLCULO DO ICMS SUBSTITUIÇÃO VALOR DO ICHS SUBSTITUIÇÃO
-14.256.54 2.566.18 20.984,20
-VALOR TOTAL DOS PRODUTOS 1.210.98
+1.234.56 234.56 2.345,67
+VALOR TOTAL DOS PRODUTOS 123.45
 VALOR TOTAL DA NOTA 0.00
 VALOR UNITÁRIO VALOR TOTAL B. CALC ICMS BAGE CALC ICME SUBST. VALOR ICMS VALOR IP
-30 475.2180 14.256.54 14.256.54 20.994.20 ICMS SUBST. 1.210.98 2.566.18
-UF 14.256.54 15.467.52 31.920 KG`;
+30 123.4567 1.234.56 1.234.56 2.345.67 ICMS SUBST. 123.45 234.56
+UF 1.234.56 1.358.01 21.321 KG`;
   const result = extractDanfe(ocrText, 1);
 
-  assert.equal(result?.icmsCalculationBasis, '14.256.54');
-  assert.equal(result?.icmsAmount, '2.566.18');
-  assert.equal(result?.totalProducts_amount, '14.256.54');
-  assert.equal(result?.totalInvoiceAmount, '15.467.52');
+  assert.equal(result?.icmsCalculationBasis, '1.234.56');
+  assert.equal(result?.icmsAmount, '234.56');
+  assert.equal(result?.totalProducts_amount, '1.234.56');
+  assert.equal(result?.totalInvoiceAmount, '1.358.01');
 });
 
 test('extracts party numbers when OCR omits the label colon', () => {
@@ -115,13 +116,13 @@ test('extracts party numbers when OCR omits the label colon', () => {
 test('keeps issuer and recipient separate when Vision emits a column-oriented DANFE', () => {
   const ocrText = [
     'TEST AUTOMOTIVE INDUSTRIA LTDA',
-    'LOGRADOURO: AV. DAS INDUSTRIAS',
-    'BAIRRO: DISTRITO INDUSTRIAL',
-    'CEP: 13288-163',
+    'LOGRADOURO: AVENIDA TESTE UM',
+    'BAIRRO: BAIRRO INDUSTRIAL TESTE',
+    'CEP: 13000-000',
     'NÚMERO: S/N',
     'COMPLEMENTO:',
-    'MUNICIPIO: VINHEDO UF: SP',
-    'FONE/FAX: 11 3000-0000',
+    'MUNICIPIO: CIDADE GAMMA UF: XX',
+    'FONE/FAX: 00 0000-0000',
     'NATUREZA DA OPERAÇÃO',
     'Outra saída merc.',
     'DESTINATÁRIO / REMETENTE',
@@ -134,7 +135,7 @@ test('keeps issuer and recipient separate when Vision emits a column-oriented DA
     'STATUS LEGAL - SEFAZ',
     'Autorizado',
     'MUNICIPIO',
-    'SAO PAULO',
+    'CITY ALPHA',
     'DANFE',
     'DOCUMENTO AUXILIAR DA NOTA FISCAL ELETRÔNICA',
     'N°',
@@ -142,8 +143,8 @@ test('keeps issuer and recipient separate when Vision emits a column-oriented DA
     'SÉRIE',
     '69',
     'CHAVE DE ACESSO',
-    '35260900000000000000550690000001231244087696',
-    'DN 1147',
+    '22222222222222222222222222222222222222222222',
+    'DN 7788',
     'CNPJ CPF',
     '00.000.000/0001-11',
     'INSCRIÇÃO ESTADUAL',
@@ -154,35 +155,35 @@ test('keeps issuer and recipient separate when Vision emits a column-oriented DA
     'COMPLEMENTO',
     '1180',
     'FONE/FAX',
-    '11 3000-1111',
+    '00 0000-0001',
     'UF',
-    'SP',
+    'XX',
     'INSCRIÇÃO ESTADUAL',
     '116.069.901.118',
     '11.111.111/0001-22',
     'CÁLCULO DO IMPOSTO',
     'PESO BRUTO',
     'PESO LÍQUIDO',
-    '31.920',
+    '21.321',
     'KG',
   ].join('\n');
 
   const result = extractDanfe(ocrText, 2);
 
   assert.ok(result);
-  assert.equal(result.sender.street, 'AV. DAS INDUSTRIAS');
-  assert.equal(result.sender.neighborhood, 'DISTRITO INDUSTRIAL');
+  assert.equal(result.sender.street, 'AVENIDA TESTE UM');
+  assert.equal(result.sender.neighborhood, 'BAIRRO INDUSTRIAL TESTE');
   assert.equal(result.sender.number, 'S/N');
-  assert.equal(result.sender.municipality, 'VINHEDO UF: SP');
+  assert.equal(result.sender.municipality, 'CIDADE GAMMA UF: XX');
   assert.equal(result.sender.cnpjCpf, '00.000.000/0001-11');
   assert.equal(result.recipient.street, 'AV. CLIENTE.');
   assert.equal(result.recipient.number, '1180');
-  assert.equal(result.recipient.municipality, 'SAO PAULO');
+  assert.equal(result.recipient.municipality, 'CITY ALPHA');
   assert.equal(result.recipient.cnpjCpf, '11.111.111/0001-22');
-  assert.equal(result.recipient.dn, '1147');
+  assert.equal(result.recipient.dn, '7788');
   assert.equal(result.invoice_number, '000000123');
   assert.equal(result.series, '69');
-  assert.equal(result.grossWeight, '31.920 KG');
+  assert.equal(result.grossWeight, '21.321 KG');
 });
 
 test('recovers recipient neighborhood when Vision separates the label from its value', () => {
@@ -195,13 +196,13 @@ test('recovers recipient neighborhood when Vision separates the label from its v
     'STATUS LEGAL - SEFAZ',
     'Autorizado',
     'MUNICIPIO',
-    'SAO PAULO',
+    'CITY ALPHA',
     'CÁLCULO DO IMPOSTO',
-    'SANTO AMARO',
+    'BAIRRO FICTICIO',
     'FATURA',
   ].join('\n');
 
-  assert.equal(extractDanfe(text, 1)?.recipient.neighborhood, 'SANTO AMARO');
+  assert.equal(extractDanfe(text, 1)?.recipient.neighborhood, 'FICTICIO');
 });
 
 test('finds recipient section when OCR accents the last letter in its heading', () => {
@@ -209,25 +210,88 @@ test('finds recipient section when OCR accents the last letter in its heading', 
     'DANFE NOTA FISCAL ELETRÔNICA',
     'DESTINATÁRIO / REMETENTË',
     'LOGRADOURO',
-    'AV. ADOLFO PINHEIRO. 1180',
+    'AV. CLIENTE CENTRAL. 1180',
     'BAIRRO/DISTRITO',
-    'SANTO AMARO',
+    'FICTICIO',
     'FATURA',
     'NÚMERO',
     'COMPLEMENTO',
     'CNPJ / CPF',
-    '49.707.557/0010-47',
+    '11.111.111/0001-22',
     'CEP',
-    '04734-002',
+    '01010-100',
     'MUNICIPIO',
-    'SAO PAULO',
+    'CITY ALPHA',
   ].join('\n');
   const result = extractDanfe(text, 4);
 
-  assert.equal(result?.recipient.street, 'AV. ADOLFO PINHEIRO. 1180');
-  assert.equal(result?.recipient.neighborhood, 'SANTO AMARO');
-  assert.equal(result?.recipient.postalCode, '04734-002');
-  assert.equal(result?.recipient.municipality, 'SAO PAULO');
+  assert.equal(result?.recipient.street, 'AV. CLIENTE CENTRAL. 1180');
+  assert.equal(result?.recipient.neighborhood, 'FICTICIO');
+  assert.equal(result?.recipient.postalCode, '01010-100');
+  assert.equal(result?.recipient.municipality, 'CITY ALPHA');
   assert.equal(result?.recipient.number, '1180');
   assert.equal(result?.recipient.complement, null);
+});
+
+test('recovers the invoice number placed before Série and ICMS amount under a reordered OCR header', () => {
+  const text = [
+    'DANFE NOTA FISCAL ELETRÔNICA',
+    '900001237',
+    'SÉRIE',
+    '69',
+    'N°',
+    'CHAVE DE ACESSO',
+    '33333333333333333333333333333333333333333333',
+    'CÁLCULO DO IMPOSTO',
+    'VALOR DO ICMS',
+    'BASE DE CÁLCULO DO ICMS SUBSTITUIÇÃO',
+    'VALOR DO ICHS SUBSTITUIÇÃO',
+    '4.321,09',
+    '789.01',
+    '6.543.21',
+    'TRANSPORTADOR / VOLUMES TRANSPORTADOS',
+  ].join('\n');
+  const result = extractDanfe(text, 4);
+
+  assert.equal(result?.invoice_number, '900001237');
+  assert.equal(result?.icmsAmount, '4.321,09');
+});
+
+test('finds the invoice total even when OCR places it after the freight section', () => {
+  const text = [
+    'DANFE NOTA FISCAL ELETRÔNICA',
+    'CÁLCULO DO IMPOSTO',
+    'TRANSPORTADOR / VOLUMES TRANSPORTADOS',
+    'DADOS ADICIONAIS',
+    'VALOR TOTAL DOS PRODUTOS',
+    '13,96',
+    '4,85',
+    'VALOR TOTAL DA NOTA',
+    '149,25',
+    '168,06',
+  ].join('\n');
+
+  assert.equal(extractDanfe(text, 6)?.totalInvoiceAmount, '149,25');
+});
+
+test('does not let a spatial row of unrelated labels replace the recognized recipient street', () => {
+  const text = completeDanfe;
+  const word = (value: string, x: number, y: number): IOcrWord => ({
+    text: value,
+    confidence: 0.99,
+    box: { x, y, width: 0.08, height: 0.015 },
+  });
+  const words = [
+    word('DESTINATÁRIO', 0.05, 0.1),
+    word('LOGRADOURO', 0.05, 0.2),
+    word('MUNICIPIO', 0.05, 0.25),
+    word('INSCRIÇÃO', 0.2, 0.25),
+    word('ESTADUAL', 0.35, 0.25),
+    word('SANTO', 0.5, 0.25),
+    word('AMARO', 0.65, 0.25),
+    word('FATURA', 0.05, 0.4),
+  ];
+  const result = extractDanfe(text, 2, words);
+
+  assert.equal(result?.recipient.street, 'Avenida Ficticia');
 });

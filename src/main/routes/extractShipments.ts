@@ -5,6 +5,7 @@ import { basename, extname, join } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 
 import { extractDanfe, type IDanfeExtraction } from '@application/documents/DanfeExtractor';
+import type { IOcrPage } from '@application/documents/OcrPage';
 import { matchRomaneioDanfe } from '@application/documents/RomaneioDanfeMatcher';
 import {
   extractRomaneio,
@@ -15,10 +16,7 @@ import fastifyMultipart from '@fastify/multipart';
 import { env } from '@shared/config/env';
 import type { FastifyInstance } from 'fastify';
 
-import {
-  CloudVisionDocumentProcessor,
-  type IOcrPage,
-} from '../../infrastructure/documents/CloudVisionDocumentProcessor';
+import { CloudVisionDocumentProcessor } from '../../infrastructure/documents/CloudVisionDocumentProcessor';
 
 const MAX_FILE_SIZE_BYTES = 25 * 1024 * 1024;
 const MAX_FILES = 1;
@@ -239,8 +237,8 @@ export function registerExtractShipmentsRoute(
           docExtracts.push(
             ...pages.map(
               (page) =>
-                extractRomaneio(page.ocrText, page.pageNumber) ??
-                extractDanfe(page.ocrText, page.pageNumber) ?? {
+                extractRomaneio(page.ocrText, page.pageNumber, page.words) ??
+                extractDanfe(page.ocrText, page.pageNumber, page.words) ?? {
                   type: 'unrecognized',
                   pageNumber: page.pageNumber,
                   ocrText: page.ocrText,

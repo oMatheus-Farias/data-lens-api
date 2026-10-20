@@ -1,3 +1,6 @@
+import type { IOcrWord } from './OcrPage';
+import { extractSpatialOcrValues } from './SpatialOcrExtractor';
+
 export interface IShippingManifestBox {
   reference: string | null;
   code: string | null;
@@ -255,13 +258,30 @@ function extractColumnOrientedBoxes(text: string): IShippingManifestBox[] {
   );
   const volumes = columnValues(text, /^VOL\s*\(/i).filter((value) => /^[\d.,]+$/.test(value));
 
+  const measurementStart = text.search(/\bREAL\s+WT\s*\(\s*KG\s*\)/i);
+  const measurementText = measurementStart >= 0 ? text.slice(measurementStart) : '';
+  const measurementBlock = measurementText.split(/\bTOTAL\b/i, 1)[0] ?? '';
+  const measurementHeaders = [
+    ...measurementBlock.matchAll(
+      /\bREAL\s+WT\s*\(\s*KG\s*\)|\bCUBIC\s+WT\s*\(\s*KG\s*\)|\bVOL\s*\([^)]*\)/gi,
+    ),
+  ];
+  const measurementValues =
+    measurementBlock
+      .replace(/\bREAL\s+WT\s*\(\s*KG\s*\)|\bCUBIC\s+WT\s*\(\s*KG\s*\)|\bVOL\s*\([^)]*\)/gi, ' ')
+      .match(/(?<!\d)\d[\d.,]*(?!\d)/g) ?? [];
+  const orderedMeasurements =
+    measurementHeaders.length >= 3 && measurementValues.length === fiscalNotes.length * 3
+      ? measurementValues
+      : [];
+
   return fiscalNotes.map((invoiceNumber, index) => ({
     reference: references[index] ?? null,
     code: codes[index] ?? null,
     invoiceNumber,
-    weight: weights[index] ?? null,
-    cubicWeight: cubicWeights[index] ?? null,
-    volume: volumes[index] ?? null,
+    weight: orderedMeasurements[index * 3] ?? weights[index] ?? null,
+    cubicWeight: orderedMeasurements[index * 3 + 1] ?? cubicWeights[index] ?? null,
+    volume: orderedMeasurements[index * 3 + 2] ?? volumes[index] ?? null,
   }));
 }
 
@@ -417,7 +437,10 @@ function createFields(
   };
 }
 
-export function extractShippingManifest(ocrText: string): IShippingManifestExtraction | null {
+export function extractShippingManifest(
+  ocrText: string,
+  ocrWords?: IOcrWord[],
+): IShippingManifestExtraction | null {
   const text = normalizedText(ocrText);
   const firstNonemptyLine = text.split('\n').find((line) => line.trim()) ?? '';
   const hasPortugueseManifestHeading = /^\s*ROMANEIO\b/i.test(firstNonemptyLine);
@@ -433,6 +456,27 @@ export function extractShippingManifest(ocrText: string): IShippingManifestExtra
   }
 
   const boxes = extractBoxes(text);
+  if (boxes.length === 1 && ocrWords?.length) {
+    const spatialMeasurements = extractSpatialOcrValues(
+      ocrWords,
+      {
+        weight: /\bREAL\s+WT\s*\(\s*KG\s*\)/i,
+        cubicWeight: /\bCUBIC\s+WT\s*\(\s*KG\s*\)/i,
+        volume: /\bVOL\s*\(/i,
+      },
+      { regionStart: /BOX\s+NUMBER/i, regionEnd: /TOTAL/i },
+    );
+    for (const field of ['weight', 'cubicWeight', 'volume'] as const) {
+      const value = spatialMeasurements[field];
+      if (
+        value &&
+        /^\d[\d.,]*$/.test(value.text) &&
+        (value.confidence === null || value.confidence >= 0.5)
+      ) {
+        boxes[0]![field] = value.text;
+      }
+    }
+  }
   const values = valuesForFields(text);
   const fields = createFields(values, boxes);
   const warnings: string[] = Object.entries(values)
