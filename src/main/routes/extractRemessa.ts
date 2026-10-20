@@ -6,6 +6,7 @@ import { pipeline } from 'node:stream/promises';
 
 import { extractDanfe } from '@application/documents/DanfeExtractor';
 import type { IDocumentProcessor } from '@application/documents/DocumentProcessor';
+import { extractRomaneio } from '@application/documents/RomaneioExtractor';
 import { ErrorCode } from '@application/errors/ErrorCode';
 import fastifyMultipart from '@fastify/multipart';
 import type { FastifyInstance } from 'fastify';
@@ -213,7 +214,7 @@ export function registerExtractRemessaRoute(
 
         try {
           const ocrText = await documentProcessor.process(file.filePath, workDirectory);
-          const extraction = extractDanfe(ocrText);
+          const extraction = extractRomaneio(ocrText) ?? extractDanfe(ocrText);
 
           documents.push(
             extraction

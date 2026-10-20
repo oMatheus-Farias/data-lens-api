@@ -137,7 +137,7 @@ test('classifies a DANFE and returns organized fields and complete OCR text', as
     'A-1 Produto exemplo 12345678 00 5102 UN 2 10,00 20,00 20,00 3,60 0,00 18,00 0,00',
     'B-2 Produto parcial 87654321 00 5102 UN 1 1,00 1,00',
     'DADOS ADICIONAIS:',
-    'Informação complementar reconhecida',
+    'Informação complementar reconhecida. Documento vinculado ao romaneio.',
   ].join('\n');
   const app = buildApp({ processDocument: async () => danfeOcr });
 
@@ -200,10 +200,85 @@ test('classifies a DANFE and returns organized fields and complete OCR text', as
         aliquotaIpi: null,
       },
     ]);
-    assert.equal(document.fields.informacoesAdicionais, 'Informação complementar reconhecida');
+    assert.equal(
+      document.fields.informacoesAdicionais,
+      'Informação complementar reconhecida. Documento vinculado ao romaneio.',
+    );
     assert.ok(document.warnings.length > 0);
     assert.ok(document.warnings.includes('produtos[1].valorIcms: campo não reconhecido no OCR'));
     assert.equal(JSON.stringify(document).includes('undefined'), false);
+  } finally {
+    await app.close();
+  }
+});
+
+test('classifies a romaneio and returns grouped shipment and box data', async () => {
+  const romaneioOcr = [
+    'New Shipping List',
+    'Closure date: 19/10/2026 08:30',
+    'Country BR Shipname NavioExemplo',
+    'Shipment SHIP-123',
+    'Operator OperadorExemplo Payment Option F-02',
+    'Carrier C-100 Expresso Exemplo',
+    'Packaging QTD',
+    'Cardboard Box 2',
+    'TOTAL 2',
+    'DN City State Route',
+    '38 SAO PAULO SP SPC006',
+    'Box Number Box Code Fiscal Note Real Wt (Kg) Cubic Wt (Kg) Vol (m3)',
+    '5551001 CODE-1 12345-67 5,752 57,251 0,191',
+    '5551002 CODE-2 12346-78 2,907 32,832 0,109',
+    'Total 8,659 90,083 0,300',
+  ].join('\n');
+  const app = buildApp({ processDocument: async () => romaneioOcr });
+
+  try {
+    const response = await app.inject({
+      method: 'POST',
+      url: '/remessas/extrair',
+      headers: { 'content-type': `multipart/form-data; boundary=${boundary}` },
+      payload: createMultipart([{ filename: 'romaneio.pdf', content: pdf('sample') }]),
+    });
+
+    assert.equal(response.statusCode, 200);
+    const document = response.json().documents[0];
+    assert.equal(document.documentType, 'romaneio');
+    assert.equal(document.status, 'success');
+    assert.equal(document.fileName, 'romaneio.pdf');
+    assert.equal(document.ocrText, romaneioOcr);
+    assert.equal(document.fields.remessa.numero, 'SHIP-123');
+    assert.equal(document.fields.remessa.pais, 'BR');
+    assert.equal(document.fields.transportadora.razaoSocial, 'Expresso Exemplo');
+    assert.equal(document.fields.transportadora.identificador, 'C-100');
+    assert.equal(document.fields.rota.origem, 'SAO PAULO');
+    assert.equal(document.fields.rota.estado, 'SP');
+    assert.equal(document.fields.rota.codigo, 'SPC006');
+    assert.equal(document.fields.fechamento.dataHora, '19/10/2026 08:30');
+    assert.equal(document.fields.volumes.quantidade, '2');
+    assert.equal(document.fields.volumes.embalagem, 'Cardboard Box');
+    assert.equal(document.fields.totais.quantidadeCaixas, '2');
+    assert.equal(document.fields.totais.peso, '8,659');
+    assert.equal(document.fields.totais.pesoCubico, '90,083');
+    assert.equal(document.fields.totais.volume, '0,300');
+    assert.deepEqual(document.fields.caixas, [
+      {
+        referencia: '5551001',
+        codigo: 'CODE-1',
+        notaFiscal: '12345-67',
+        peso: '5,752',
+        pesoCubico: '57,251',
+        volume: '0,191',
+      },
+      {
+        referencia: '5551002',
+        codigo: 'CODE-2',
+        notaFiscal: '12346-78',
+        peso: '2,907',
+        pesoCubico: '32,832',
+        volume: '0,109',
+      },
+    ]);
+    assert.ok(document.warnings.includes('remessa.data: campo não reconhecido no OCR'));
   } finally {
     await app.close();
   }
